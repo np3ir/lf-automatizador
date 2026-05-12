@@ -1,4 +1,4 @@
-w   # LF Automatizador v1.0 - Roadmap y Tareas Pendientes (TODO)
+# LF Automatizador v0.9.0 - Roadmap y Tareas Pendientes (TODO)
 
 Este documento es nuestra hoja de ruta compartida. Aquí mantendremos un registro de todas las ideas, mejoras y correcciones pendientes para no olvidar nada mientras avanzamos en el desarrollo de la aplicación.
 

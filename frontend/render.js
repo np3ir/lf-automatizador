@@ -1220,7 +1220,7 @@ function applyStopAfterVisualState() {
 }
 
 function updateAppTitle(text = '') {
-    const base = 'LF Automatizador v1.0';
+    const base = 'LF Automatizador v0.9.0';
     document.title = text ? `${text} - ${base}` : base;
 }
 
@@ -2972,7 +2972,16 @@ document.getElementById('eim-ignore').addEventListener('click', () => { const ev
 document.getElementById('eim-mod').addEventListener('click', () => { const ev = eventsMasterDB.find(e => e.id === selectedEventId); if (ev) { ev.hasError = false; ev.errorLoggedFor = null; ipcRenderer.send('open-event-editor', ev); } hideAllMenus(); });
 document.getElementById('eim-del').addEventListener('click', async () => { const ev = eventsMasterDB.find(e => e.id === selectedEventId); if (ev) { hideAllMenus(); const confirm = await ipcRenderer.invoke('dialog:confirm', `Seguro que deseas eliminar el evento "${ev.name}"? Esta accion no se puede deshacer.`); if (confirm) { eventsMasterDB = eventsMasterDB.filter(e => e.id !== selectedEventId); selectedEventId = null; updateSelectedEventControls(); saveEventsDB(); renderEventsList(); } } });
 document.getElementById('em-calendar').addEventListener('click', () => { ipcRenderer.send('open-calendar'); hideAllMenus(); });
-document.getElementById('btn-events-list').addEventListener('click', (e) => { e.stopPropagation(); showContextMenu(eventsListMenu, e.pageX - 100, e.pageY + 10); applyMenuLogic(); });
+document.getElementById('btn-events-list').addEventListener('click', (e) => { 
+    e.stopPropagation(); 
+    if (eventsListMenu && eventsListMenu.style.display === 'block') {
+        hideAllMenus();
+    } else {
+        hideAllMenus();
+        showContextMenu(eventsListMenu, e.pageX - 100, e.pageY + 10); 
+        applyMenuLogic(); 
+    }
+});
 document.getElementById('em-save-all').addEventListener('click', () => { const blob = new Blob([JSON.stringify(eventsMasterDB, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `Respaldo_Total.eventoslf`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); hideAllMenus(); });
 document.getElementById('em-load').addEventListener('click', () => { document.getElementById('load-event-input').click(); hideAllMenus(); });
 document.getElementById('load-event-input').addEventListener('change', (e) => { if(e.target.files.length === 0) return; const file = e.target.files[0]; const reader = new FileReader(); reader.onload = (ev) => { try { const data = JSON.parse(ev.target.result); if(Array.isArray(data)) { eventsMasterDB = data; } else { const idx = eventsMasterDB.findIndex(ex => ex.id === data.id); if(idx>=0) eventsMasterDB[idx] = data; else eventsMasterDB.push(data); } saveEventsDB(); } catch(err){} }; reader.readAsText(file); e.target.value = ''; });
@@ -4079,7 +4088,6 @@ function commitRotationNumberInputs() {
     commitRotationIntegerInput('rotation-target-min', 60, 5, 360);
     commitRotationIntegerInput('rotation-sep-artist', 4, 0, 50);
     commitRotationIntegerInput('rotation-sep-title', 8, 0, 50);
-    commitRotationIntegerInput('rotation-sep-folder', 2, 0, 50);
 }
 
 function readRotationPrefsFromUi() {
@@ -4087,15 +4095,15 @@ function readRotationPrefsFromUi() {
     const targetEl = document.getElementById('rotation-target-min');
     const artistEl = document.getElementById('rotation-sep-artist');
     const titleEl = document.getElementById('rotation-sep-title');
-    const folderEl = document.getElementById('rotation-sep-folder');
-    const clearEl = document.getElementById('rotation-clear-list');
+    const artistCheck = document.getElementById('rotation-sep-artist-check');
+    const titleCheck = document.getElementById('rotation-sep-title-check');
     return {
         pattern: patternEl ? patternEl.value : '',
         targetMinutes: parseRotationIntegerInput(targetEl, 60, 5, 360),
         sepArtist: parseRotationIntegerInput(artistEl, 4, 0, 50),
         sepTitle: parseRotationIntegerInput(titleEl, 8, 0, 50),
-        sepFolder: parseRotationIntegerInput(folderEl, 2, 0, 50),
-        clearList: clearEl ? clearEl.checked === true : false
+        checkArtist: artistCheck ? artistCheck.checked : true,
+        checkTitle: titleCheck ? titleCheck.checked : true
     };
 }
 
@@ -4235,19 +4243,21 @@ function getRotationCandidates(categoryDefs = null) {
         if (!filePath || !/\.(mp3|wav|flac|ogg|m4a|aac)$/i.test(filePath)) return;
         const typeData = getTrackTypeData(filePath);
         const catId = typeData ? typeData.id : 'default';
+        const isId = typeData && /id|pisador|jingle|cuña|station|promo/i.test(`${typeData.name} ${typeData.identifier}`);
         const track = {
             filePath,
             title: getRotationTrackTitle(filePath, data),
             duration: getRotationDuration(filePath, data),
             artistKey: getRotationArtistKey(filePath, data),
             titleKey: getRotationTitleKey(filePath, data),
-            folderKey: normalizeRotationText(path.dirname(filePath))
+            folderKey: normalizeRotationText(path.dirname(filePath)),
+            isIdentifier: !!isId
         };
         addRotationCandidate(byCategory, catId, track);
         getRotationTrackGenreCategoryIds(data).forEach(genreCatId => addRotationCandidate(byCategory, genreCatId, track));
         inferRotationCategoryIdsFromPath(filePath, data, defs, typeData).forEach(inferredCatId => addRotationCandidate(byCategory, inferredCatId, track));
     });
-    byCategory.forEach((tracks, catId) => byCategory.set(catId, shuffleArray([...tracks])));
+    byCategory.forEach((tracks, catId) => byCategory.set(catId, { items: shuffleArray([...tracks]), cursor: 0 }));
     return byCategory;
 }
 
@@ -4258,26 +4268,53 @@ function isRecentlyUsed(value, recent, distance) {
 }
 
 function pickRotationTrack(pool, recent, prefs) {
-    if (!pool || pool.length === 0) return null;
+    if (!pool || !pool.items || pool.items.length === 0) return null;
+    
+    if (pool.cursor >= pool.items.length) {
+        pool.items = shuffleArray([...pool.items]);
+        pool.cursor = 0;
+    }
+
     const passes = [
-        track => (isTimeLocutionTrack(track) || !recent.paths.includes(track.filePath))
-            && !isRecentlyUsed(track.artistKey, recent.artists, prefs.sepArtist)
-            && !isRecentlyUsed(track.titleKey, recent.titles, prefs.sepTitle)
-            && !isRecentlyUsed(track.folderKey, recent.folders, prefs.sepFolder),
-        track => (isTimeLocutionTrack(track) || !recent.paths.includes(track.filePath))
-            && !isRecentlyUsed(track.artistKey, recent.artists, Math.floor(prefs.sepArtist / 2))
-            && !isRecentlyUsed(track.titleKey, recent.titles, Math.floor(prefs.sepTitle / 2)),
-        track => isTimeLocutionTrack(track) || !recent.paths.includes(track.filePath),
+        track => {
+            if (track.isIdentifier) return !isRecentlyUsed(track.filePath, recent.paths, 2);
+            return !recent.paths.includes(track.filePath)
+                && (!prefs.checkArtist || !isRecentlyUsed(track.artistKey, recent.artists, prefs.sepArtist))
+                && (!prefs.checkTitle || !isRecentlyUsed(track.titleKey, recent.titles, prefs.sepTitle));
+        },
+        track => {
+            if (track.isIdentifier) return !isRecentlyUsed(track.filePath, recent.paths, 2);
+            return !recent.paths.includes(track.filePath)
+                && (!prefs.checkArtist || !isRecentlyUsed(track.artistKey, recent.artists, Math.floor(prefs.sepArtist / 2)))
+                && (!prefs.checkTitle || !isRecentlyUsed(track.titleKey, recent.titles, Math.floor(prefs.sepTitle / 2)));
+        },
+        track => {
+            if (track.isIdentifier) return true;
+            return !recent.paths.includes(track.filePath);
+        },
         () => true
     ];
+    
     for (const predicate of passes) {
-        const index = pool.findIndex(predicate);
-        if (index >= 0) {
-            const track = pool[index];
-            return isTimeLocutionTrack(track) ? { ...track } : pool.splice(index, 1)[0];
+        for (let i = pool.cursor; i < pool.items.length; i++) {
+            const track = pool.items[i];
+            if (track.isIdentifier && recent.paths.includes(track.filePath)) continue;
+            
+            if (predicate(track)) {
+                const temp = pool.items[pool.cursor];
+                pool.items[pool.cursor] = pool.items[i];
+                pool.items[i] = temp;
+                
+                const pickedTrack = pool.items[pool.cursor];
+                pool.cursor++;
+                return isTimeLocutionTrack(pickedTrack) ? { ...pickedTrack } : { ...pickedTrack };
+            }
         }
     }
-    return null;
+    
+    const fallbackTrack = pool.items[pool.cursor];
+    pool.cursor++;
+    return isTimeLocutionTrack(fallbackTrack) ? { ...fallbackTrack } : { ...fallbackTrack };
 }
 
 async function buildRotationPlan() {
@@ -4328,10 +4365,11 @@ async function buildRotationPlan() {
         recent.titles.push(track.titleKey);
         recent.folders.push(track.folderKey);
         
-        if (recent.paths.length > 60) recent.paths.shift();
-        if (recent.artists.length > 60) recent.artists.shift();
-        if (recent.titles.length > 60) recent.titles.shift();
-        if (recent.folders.length > 60) recent.folders.shift();
+        const maxMemory = Math.max(60, (prefs.sepArtist || 0) * 2, (prefs.sepTitle || 0) * 2);
+        if (recent.paths.length > maxMemory) recent.paths.shift();
+        if (recent.artists.length > maxMemory) recent.artists.shift();
+        if (recent.titles.length > maxMemory) recent.titles.shift();
+        if (recent.folders.length > maxMemory) recent.folders.shift();
     }
 
     return {
@@ -4363,14 +4401,12 @@ function updateRotationSummary(plan = null) {
         updateRotationQuickSummary();
         return;
     }
-    const nextPlan = plan;
-    const missingItems = Array.isArray(nextPlan.missing)
-        ? nextPlan.missing
-        : Array.from(nextPlan.missing?.keys?.() || []);
-    const missingText = missingItems.length
-        ? `\nAlertas: ${missingItems.join(', ')} sin suficientes canciones.`
-        : '';
-    summary.textContent = `Patron: ${nextPlan.pattern.length} paso(s)\nGeneraria: ${nextPlan.tracks.length} pista(s) / ${formatRotationDuration(nextPlan.totalSeconds)}${missingText}`;
+    const missingItems = Array.isArray(plan.missing) ? plan.missing : Object.keys(plan.missing || {});
+    const missingText = missingItems.length ? `\nAlertas: ${missingItems.join(', ')} sin suficientes canciones.` : '';
+    const prefs = readRotationPrefsFromUi();
+    const rawPattern = String(prefs.pattern || getDefaultRotationPattern());
+    const patternSteps = rawPattern.split(/[\n,>]+/).map(t => t.trim()).filter(Boolean).length;
+    summary.textContent = `Patron: ${patternSteps} paso(s)\nGeneraria: ${plan.tracks.length} pista(s) / ${formatRotationDuration(plan.totalSeconds)}${missingText}`;
 }
 
 function runRotationPreflight() {
@@ -4391,14 +4427,14 @@ function populateRotationModal() {
     const targetEl = document.getElementById('rotation-target-min');
     const artistEl = document.getElementById('rotation-sep-artist');
     const titleEl = document.getElementById('rotation-sep-title');
-    const folderEl = document.getElementById('rotation-sep-folder');
-    const clearEl = document.getElementById('rotation-clear-list');
+    const artistCheck = document.getElementById('rotation-sep-artist-check');
+    const titleCheck = document.getElementById('rotation-sep-title-check');
     if (patternEl) patternEl.value = clockwheelPrefs.pattern || getDefaultRotationPattern();
     if (targetEl) targetEl.value = clockwheelPrefs.targetMinutes || 60;
     if (artistEl) artistEl.value = clockwheelPrefs.sepArtist ?? 4;
     if (titleEl) titleEl.value = clockwheelPrefs.sepTitle ?? 8;
-    if (folderEl) folderEl.value = clockwheelPrefs.sepFolder ?? 2;
-    if (clearEl) clearEl.checked = clockwheelPrefs.clearList === true;
+    if (artistCheck) artistCheck.checked = clockwheelPrefs.checkArtist ?? true;
+    if (titleCheck) titleCheck.checked = clockwheelPrefs.checkTitle ?? true;
 
     const palette = document.getElementById('rotation-category-palette');
     if (palette) {
@@ -4453,14 +4489,16 @@ async function applyRotationPlanToPlaylist() {
     saveClockwheelPrefsFromUi();
 
     // --- Selector de playlist destino ---
-    const chosenTab = await showPlaylistTargetSelector();
-    if (chosenTab === null) return; // usuario canceló
+    const selection = await showPlaylistTargetSelector();
+    if (selection === null) return; // usuario canceló
+
+    const chosenTab = selection.tab;
+    const clearList = selection.clearList;
 
     const targetTbody = tbodys[chosenTab];
     if (!targetTbody) return;
 
     const playingInsideTarget = currentPlayingRow && targetTbody.contains(currentPlayingRow);
-    const clearList = !!document.getElementById('rotation-clear-list')?.checked;
 
     if (clearList && playingInsideTarget) {
         alert('Esa playlist esta al aire. Por seguridad no se reemplaza mientras hay audio sonando.');
@@ -4568,7 +4606,14 @@ function showPlaylistTargetSelector() {
             }
             btn.addEventListener('mouseenter', () => { btn.style.background = isLive ? '#3a1520' : '#00a8ff'; btn.style.color = '#fff'; btn.style.borderColor = isLive ? '#ff6b6b' : '#00a8ff'; });
             btn.addEventListener('mouseleave', () => { btn.style.background = isLive ? '#2c1018' : '#222'; btn.style.color = isLive ? '#ff6b6b' : '#ccc'; btn.style.borderColor = isLive ? '#e74c3c' : '#444'; });
-            btn.addEventListener('click', () => { overlay.remove(); resolve(i); });
+            btn.addEventListener('click', () => { 
+                const clearCheckEl = document.getElementById('rotation-clear-list');
+                const isClear = clearCheckEl ? clearCheckEl.checked : false;
+                clockwheelPrefs.clearList = isClear;
+                saveConfig(clockwheelPrefsPath, clockwheelPrefs);
+                overlay.remove(); 
+                resolve({ tab: i, clearList: isClear }); 
+            });
             btnContainer.appendChild(btn);
         }
 
@@ -4582,6 +4627,19 @@ function showPlaylistTargetSelector() {
             liveHint.textContent = `🔴 Playlist ${liveIdx + 1} está al aire`;
             box.appendChild(liveHint);
         }
+
+        const optionContainer = document.createElement('div');
+        optionContainer.style.cssText = 'margin-bottom:15px; text-align:center;';
+        const clearCheck = document.createElement('input');
+        clearCheck.type = 'checkbox';
+        clearCheck.id = 'rotation-clear-list';
+        clearCheck.checked = clockwheelPrefs.clearList === true;
+        const clearLabel = document.createElement('label');
+        clearLabel.style.cssText = 'color:#ccc; font-size:12px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;';
+        clearLabel.appendChild(clearCheck);
+        clearLabel.appendChild(document.createTextNode('Limpiar lista destino al generar'));
+        optionContainer.appendChild(clearLabel);
+        box.appendChild(optionContainer);
 
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = 'Cancelar';
@@ -4608,8 +4666,8 @@ function initRotationModal() {
     document.getElementById('rotation-target-min')?.addEventListener('input', () => updateRotationQuickSummary());
     document.getElementById('rotation-sep-artist')?.addEventListener('input', () => updateRotationQuickSummary());
     document.getElementById('rotation-sep-title')?.addEventListener('input', () => updateRotationQuickSummary());
-    document.getElementById('rotation-sep-folder')?.addEventListener('input', () => updateRotationQuickSummary());
-    document.getElementById('rotation-clear-list')?.addEventListener('change', () => updateRotationQuickSummary());
+    document.getElementById('rotation-sep-artist-check')?.addEventListener('change', () => updateRotationQuickSummary());
+    document.getElementById('rotation-sep-title-check')?.addEventListener('change', () => updateRotationQuickSummary());
 }
 
 function updateNextTrackVisuals() {

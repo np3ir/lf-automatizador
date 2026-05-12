@@ -1,9 +1,24 @@
-# LF Automatizador v1.0
+# LF Automatizador v0.9.0
+
+> "Un software diseñado por un operador de audio para operadores de audios"
 
 ![Estado](https://img.shields.io/badge/Estado-Optimizaci%C3%B3n_Activa-green)
-![Plataforma](https://img.shields.io/badge/Plataforma-Windows%20%7C%20Linux-blue)
+![Plataforma](https://img.shields.io/badge/Plataforma-Windows-blue)
 
-**LF Automatizador** es un software avanzado de automatización de radio, creado por y para operadores de radio. Ofrece herramientas de ruteo de audio, programación de eventos, gestión de librerías y control de emisión de primer nivel.
+**LF Automatizador** es un software avanzado diseñado específicamente para **radio profesional** y **transmisión por Internet** (Web Radio / Streaming). Ofrece herramientas precisas de ruteo, programación de eventos, gestión de librerías y control de emisión de primer nivel.
+
+> **Nota Técnica:** Actualmente el sistema depende de la *Web Audio API* para todo el procesamiento de sonido (estable y funcional), pero nos encontramos en un proceso de reestructuración para migrar el motor de audio interno al lenguaje **Rust**, lo que brindará rendimiento nativo y calidad *broadcast* superior.
+
+## 🎛️ Características Principales
+
+- **Generador de Playlists (Clockwheel):** Sistema inteligente (no destructivo) para crear listas basadas en reglas musicales, previniendo bucles infinitos y respetando separaciones de artista y título.
+- **Tres Editores de Pistas Especializados:** Potentes editores contextuales (accesibles con clic derecho) para la configuración precisa de cada audio:
+  - **Editor de Pistas Avanzado:** Modifica puntos de mezcla (Mix, Intro, Outro), volúmenes y atenuaciones (Fades) en detalle.
+  - **Editor de Transición Musical:** Ajusta y preescucha cómo sonará el ensamble exacto entre dos canciones consecutivas.
+  - **Editor de Cruce con Pisador:** Define y ajusta el comportamiento exacto de atenuación (ducking) cuando un *jingle* pisa una canción.
+- **Ruteo de Audio Avanzado:** Asignación independiente del "Master" (Aire), "Monitores" y "CUE/Preescucha" hacia tarjetas de sonido físicas distintas.
+- **Cartwall (Botonera):** Carga perfiles personalizados con efectos, pisadores y cuñas instantáneas.
+- **Interfaz Camaleónica:** Monitores visuales, barra de tiempo y barras VU en tiempo real con cero sobrecarga en el DOM.
 
 ---
 

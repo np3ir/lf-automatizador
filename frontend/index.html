@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>LF Automatizador v1.0</title>
+    <title>LF Automatizador v0.9.0</title>
     <link rel="stylesheet" href="style.css">
     <style>
         .fx-module {
@@ -586,10 +586,14 @@
                     <label class="rotation-label">Duracion objetivo</label>
                     <div class="rotation-row"><input type="text" id="rotation-target-min" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="60"><span>minutos</span></div>
                     <label class="rotation-label">Separacion minima</label>
-                    <div class="rotation-row"><span>Artista</span><input type="text" id="rotation-sep-artist" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="4"><span>pistas</span></div>
-                    <div class="rotation-row"><span>Titulo</span><input type="text" id="rotation-sep-title" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="8"><span>pistas</span></div>
-                    <div class="rotation-row"><span>Carpeta</span><input type="text" id="rotation-sep-folder" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="2"><span>pistas</span></div>
-                    <label class="rotation-check"><input type="checkbox" id="rotation-clear-list"> Reemplazar lista activa si esta detenida</label>
+                    <div class="rotation-row">
+                        <label><input type="checkbox" id="rotation-sep-artist-check" checked> Artista</label>
+                        <input type="text" id="rotation-sep-artist" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="4"><span>pistas</span>
+                    </div>
+                    <div class="rotation-row">
+                        <label><input type="checkbox" id="rotation-sep-title-check" checked> Titulo</label>
+                        <input type="text" id="rotation-sep-title" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="8"><span>pistas</span>
+                    </div>
                     <div id="rotation-summary" class="rotation-summary">Listo para construir una hora musical.</div>
                 </div>
             </div>
