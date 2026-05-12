@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Emisor de Radio (Encoder)</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { padding: 0; background: #1a1a1c; box-sizing: border-box; overflow-x: hidden; height: 100vh; display: flex; flex-direction: column;}
+        
+        .enc-tabs { display: flex; border-bottom: 1px solid #333; background: #222225; flex-shrink: 0;}
+        .enc-tab { flex: 1; background: transparent; color: #aaa; border: none; padding: 12px; cursor: pointer; font-weight: bold; font-size: 13px; transition: 0.2s;}
+        .enc-tab:hover { background: #333; color: #fff;}
+        .enc-tab.active { background: #00a8ff; color: #fff; }
+        
+        .enc-pane { display: none; padding: 15px; flex: 1; overflow-y: auto;}
+        .enc-pane.active { display: block; }
+        
+        .enc-status { text-align: center; font-size: 20px; font-weight: bold; font-family: 'Consolas', monospace; margin-bottom: 15px; padding: 10px; border-radius: 4px; border: 2px solid #444; color: #888; background: #111; transition: 0.3s;}
+        .enc-status.live { color: #2ecc71; border-color: #2ecc71; text-shadow: 0 0 10px rgba(46, 204, 113, 0.5); }
+        .enc-status.connecting { color: #f1c40f; border-color: #f1c40f; }
+        .enc-status.error { color: #e74c3c; border-color: #e74c3c; }
+        
+        .enc-timer { font-size: 42px; font-weight: bold; text-align: center; color: #fff; margin: 10px 0 20px 0; font-family: 'Consolas', monospace;}
+        .enc-stats { border: 1px solid #38383d; background: #151517; border-radius: 4px; padding: 10px; margin-bottom: 14px; }
+        .enc-stats-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+        .enc-stats-title { color: #00a8ff; font-size: 11px; font-weight: bold; letter-spacing: .04em; text-transform: uppercase; }
+        .enc-stats-values { color: #ddd; font-family: 'Consolas', monospace; font-size: 10px; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+        .enc-graph-wrap { position: relative; height: 80px; border: 1px solid #2c3e50; background: #0b0d0f; border-radius: 3px; overflow: hidden; }
+        #enc-throughput-canvas { width: 100%; height: 80px; display: block; }
+        .enc-graph-scale { position: absolute; right: 6px; top: 4px; color: #777; font-family: 'Consolas', monospace; font-size: 10px; pointer-events: none; }
+        .enc-health-line { margin-top: 7px; min-height: 14px; color: #888; font-family: 'Consolas', monospace; font-size: 10px; }
+        .enc-health-line.warn { color: #f1c40f; }
+        
+        /* CORRECCIÓN DE COLOR DEL LOG */
+        .enc-log-box { background: #1f1f21; color: #ccc; font-family: 'Consolas', monospace; font-size: 11px; height: 220px; overflow-y: auto; padding: 8px; border: 1px solid #444; border-radius: 4px; line-height: 1.4;}
+        .enc-log-box span.time { color: #888; margin-right: 5px; }
+
+        .row { display: flex; align-items: center; margin-bottom: 12px; gap: 10px; }
+        .row label { width: 130px; color: #ccc; font-size: 12px; font-weight: bold; text-align: right;}
+        .enc-input { flex: 1; background: #111; color: white; border: 1px solid #444; padding: 8px; border-radius: 3px; outline: none; font-family: 'Segoe UI', sans-serif; font-size: 12px; }
+        .enc-input:focus { border-color: #00a8ff; }
+        
+        .footer-bar { padding: 15px; background: #222225; border-top: 1px solid #333; flex-shrink: 0;}
+        .enc-btn { width: 100%; padding: 15px; font-size: 16px; font-weight: bold; color: white; border: none; border-radius: 4px; cursor: pointer; background: #00a8ff; transition: 0.2s;}
+        .enc-btn:hover { background: #0097e6; }
+        .enc-btn.stop { background: #e74c3c; }
+        .enc-btn.stop:hover { background: #c0392b; }
+    </style>
+</head>
+<body class="settings-window-body">
+    
+    <div class="enc-tabs">
+        <button class="enc-tab active" id="tab-btn-status">&#128225; ESTADO Y LOGS</button>
+        <button class="enc-tab" id="tab-btn-config">&#9881;&#65039; CONFIGURACION</button>
+    </div>
+
+    <div id="tab-status" class="enc-pane active">
+        <div class="enc-status" id="enc-status">DESCONECTADO</div>
+        <div class="enc-timer" id="enc-timer">00:00:00</div>
+        <div class="enc-stats">
+            <div class="enc-stats-head">
+                <span class="enc-stats-title">Envio de senal</span>
+                <span class="enc-stats-values" id="enc-throughput-values">Actual: -- kbps | Pico: -- kbps | Vel: --</span>
+            </div>
+            <div class="enc-graph-wrap">
+                <canvas id="enc-throughput-canvas" width="380" height="80"></canvas>
+                <span class="enc-graph-scale" id="enc-throughput-scale">-- kbps</span>
+            </div>
+            <div class="enc-health-line" id="enc-health-line">Esperando datos del encoder.</div>
+        </div>
+        
+        <p style="margin: 0 0 5px 0; font-size: 11px; color: #888; font-weight: bold;">Registro de Emisión (Log):</p>
+        <div class="enc-log-box" id="enc-log"></div>
+    </div>
+
+    <div id="tab-config" class="enc-pane">
+        <fieldset class="fieldset-dark" style="margin-bottom: 15px;">
+            <legend>Servidor de Streaming (Icecast / Shoutcast)</legend>
+            <div class="row">
+                <label>Tipo Servidor:</label>
+                <select id="enc-type" class="enc-input dark-select">
+                    <option value="icecast">Icecast (ZenoRadio, Listen2MyRadio)</option>
+                    <option value="shoutcast">Shoutcast (Clásico)</option>
+                </select>
+            </div>
+            <div class="row">
+                <label>IP / Host:</label>
+                <input type="text" id="enc-ip" class="enc-input" placeholder="ej. cast.zenomedia.com">
+            </div>
+            <div class="row">
+                <label>Puerto:</label>
+                <input type="text" id="enc-port" class="enc-input" placeholder="ej. 80">
+            </div>
+            <div class="row">
+                <label>Contraseña:</label>
+                <input type="password" id="enc-pass" class="enc-input" placeholder="Mountpass (Zeno) o Password">
+            </div>
+            <div class="row" id="row-mount">
+                <label>Punto de Montaje:</label>
+                <input type="text" id="enc-mount" class="enc-input" placeholder="ej. /stream">
+            </div>
+        </fieldset>
+
+        <fieldset class="fieldset-dark">
+            <legend>Audio y Calidad</legend>
+            <div class="row">
+                <label>Origen de Audio:</label>
+                <select id="enc-source" class="enc-input dark-select">
+                    <option value="master">💻 Mezcla Interna (Master PC)</option>
+                    <option value="mic">🎤 Entrada Externa (Consola de Audio/Mic)</option>
+                </select>
+            </div>
+            <div class="row" id="row-mic" style="display: none;">
+                <label>Tarjeta / Línea:</label>
+                <select id="enc-mic" class="enc-input dark-select"></select>
+            </div>
+            <div class="row">
+                <label>Formato (Codec):</label>
+                <select id="enc-codec" class="enc-input dark-select">
+                    <option value="mp3" selected>MP3 (Universal/Clásico)</option>
+                    <option value="aac">AAC (Alta eficiencia, ZenoRadio)</option>
+                </select>
+            </div>
+            <div class="row">
+                <label>Calidad (Bitrate):</label>
+                <select id="enc-bitrate" class="enc-input dark-select">
+                    <option value="64">64 kbps (Bajo consumo)</option>
+                    <option value="128" selected>128 kbps (Recomendado/Estándar)</option>
+                    <option value="192">192 kbps (Alta Calidad)</option>
+                    <option value="320">320 kbps (Estudio/HD)</option>
+                </select>
+            </div>
+        </fieldset>
+    </div>
+
+    <div class="footer-bar">
+        <button id="btn-connect" class="enc-btn">&#128251; CONECTAR SERVIDOR</button>
+    </div>
+    
+    <script src="encoder.js"></script>
+</body>
+</html>

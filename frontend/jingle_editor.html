@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Editor de Músicas y Pisadores</title>
+    <style>
+        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, sans-serif; background-color: #1a1a1c; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .header { flex-shrink: 0; background: #222225; border-bottom: 1px solid #333; padding: 15px; display: flex; align-items: center; justify-content: space-between; }
+        .title-box { display: flex; flex-direction: column; gap: 4px; }
+        .title-box span { font-size: 14px; font-weight: bold; color: #fff; }
+        .title-box small { font-size: 11px; color: #f39c12; text-transform: uppercase; }
+        .controls { display: flex; gap: 10px; align-items: center; }
+        .btn-icon { background: #333; border: 1px solid #444; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 16px; transition: 0.2s; display: flex; align-items: center; justify-content: center; }
+        .btn-icon:hover { background: #f39c12; border-color: #f39c12; }
+        
+        .editor-body { flex: 1; position: relative; background: #111; overflow: hidden; display: flex; flex-direction: column; }
+        .track-row { flex: 1; position: relative; border-bottom: 1px dashed #333; overflow: hidden; }
+        .track-canvas { position: absolute; top: 0; left: 0; height: 100%; cursor: ew-resize; }
+        .play-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: #e74c3c; z-index: 10; pointer-events: none; }
+        
+        .scrollbar-container { background: #1a1a1c; padding: 5px 15px; border-top: 1px solid #333; flex-shrink: 0; }
+        .scroll-slider { width: 100%; -webkit-appearance: none; background: #333; height: 6px; border-radius: 3px; outline: none; }
+        .scroll-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 60px; height: 12px; background: #f39c12; border-radius: 6px; cursor: pointer; }
+
+        .footer { flex-shrink: 0; background: #222225; border-top: 1px solid #333; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .footer-info { font-family: 'Consolas', monospace; font-size: 13px; color: #aaa; display: flex; gap: 20px;}
+        .footer-info span { color: #f39c12; font-weight: bold; }
+        .btn { padding: 8px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; border: none; font-size: 13px; transition: 0.2s; }
+        .btn-cancel { background: #444; color: white; }
+        .btn-save { background: #27ae60; color: white; margin-left: 10px; }
+        
+        .loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26,26,28,0.9); z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; }
+        .loading-text { margin-top: 10px; color: #f39c12; font-weight: bold; font-size: 14px; }
+        .drag-handle { position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.5); padding: 2px 6px; border-radius: 3px; font-size: 10px; color: #fff; pointer-events: none; z-index: 5; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title-box">
+            <small>Cruce Multipista (Pisadores)</small>
+            <span id="lbl-tracks">Cargando pistas...</span>
+        </div>
+        <div class="controls">
+            <button id="btn-play-pause" class="btn-icon">▶</button>
+            <button id="btn-zoom-out" class="btn-icon">🔍-</button>
+            <button id="btn-zoom-in" class="btn-icon">🔍+</button>
+        </div>
+    </div>
+    <div class="editor-body" id="editor-viewport">
+        <div id="loading" class="loading-overlay"><span>⏳</span><div class="loading-text">Decodificando audios...</div></div>
+        <div class="track-row" id="row-a"><canvas id="canvas-a" class="track-canvas" style="cursor: default;"></canvas><div class="drag-handle">1. Pista Saliente (Fija)</div></div>
+        <div class="track-row" id="row-j"><canvas id="canvas-j" class="track-canvas"></canvas><div class="drag-handle" style="background: #f39c1280;">2. Pisador (Arrastra)</div></div>
+        <div class="track-row" id="row-b"><canvas id="canvas-b" class="track-canvas"></canvas><div class="drag-handle" style="background: #2ecc7180;">3. Pista Entrante (Arrastra)</div></div>
+        <div id="play-cursor" class="play-cursor"></div>
+    </div>
+    <div class="scrollbar-container"><input type="range" id="view-scroll" class="scroll-slider" min="-60" max="60" value="-15"></div>
+    <div class="footer">
+        <div class="footer-info">
+            <div>Pisador: <span id="lbl-mix-a">0.00 s</span></div>
+            <div>Pista B: <span id="lbl-mix-b">0.00 s</span></div>
+        </div>
+        <div><button id="btn-cancel" class="btn btn-cancel">Cancelar</button><button id="btn-save" class="btn btn-save">💾 Aplicar y Guardar</button></div>
+    </div>
+    <script src="jingle_editor.js"></script>
+</body>
+</html>

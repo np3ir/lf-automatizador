@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>LF Automatizador v1.0</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .fx-module {
+            display: flex;
+            flex-direction: column;
+            background: #1f1f21;
+            border: 1px solid #333;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .fx-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #2a2a2d;
+            border-bottom: 1px solid #333;
+            font-weight: bold;
+            color: #fff;
+        }
+        .fx-body {
+            padding: 12px;
+        }
+        .fx-controls {
+            display: flex;
+            gap: 5px;
+        }
+        .fx-btn {
+            background: #444;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 11px;
+            transition: 0.2s;
+        }
+        .fx-btn:hover {
+            background: #00a8ff;
+            border-color: #00a8ff;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 34px;
+            height: 20px;
+        }
+        .switch input { 
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2ecc71;
+        }
+        input:checked + .slider:before {
+            transform: translateX(14px);
+        }
+        .top-right-col, .player-box, .aire-text-container {
+            min-width: 0 !important; 
+        }
+        #txt-siguiente, #txt-cancion {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            max-width: 100% !important;
+            display: block !important;
+        }
+
+        .manual-warning-border {
+            border: 2px solid transparent !important;
+            background: linear-gradient(#111, #111) padding-box, 
+                        repeating-linear-gradient(45deg, #f39c12 0, #f39c12 10px, #000 10px, #000 20px) border-box !important;
+        }
+
+        @keyframes tabFlash {
+            0% { background-color: #e01283; color: #fff; }
+            50% { background-color: #222225; color: #e01283; }
+            100% { background-color: #e01283; color: #fff; }
+        }
+        .tab-emergency-flash {
+            animation: tabFlash 0.8s infinite !important;
+        }
+    </style>
+</head>
+<body>
+    <audio id="player-a" style="display: none;"></audio>
+    <audio id="player-b" style="display: none;"></audio>
+    <audio id="jingle-player" style="display: none;"></audio>
+    
+    <input type="file" id="folder-input-time" webkitdirectory directory style="display: none;">
+    <input type="file" id="load-event-input" accept=".eventolf,.eventoslf" style="display: none;">
+
+    <div class="top-toolbar">
+        <div class="toolbar-left-tools">
+            <button id="btn-top-clear" class="toolbar-btn" title="Limpiar Playlist (Ctrl+N)">📄</button>
+            <button id="btn-top-open" class="toolbar-btn" title="Abrir Playlist (Ctrl+O)">📂</button>
+            <button id="btn-top-save" class="toolbar-btn" title="Guardar Playlist (Ctrl+S)">💾</button>
+        </div>
+        <div class="toolbar-right-tools">
+            <div id="monitor-toolbar-wrap" class="monitor-toolbar-wrap" style="display: none;">
+                <button id="btn-monitor-ui" class="toolbar-btn toolbar-btn-compact" title="Volumen de Monitores">&#128266;</button>
+                <div id="monitor-popover" class="monitor-popover" style="display: none;">
+                    <div class="monitor-popover-card" title="Volumen de Monitores">
+                        <input type="range" id="monitor-volume-pop" min="0" max="100" value="100" orient="vertical">
+                        <span class="fader-caption">MON</span>
+                    </div>
+                </div>
+            </div>
+            <button id="btn-open-settings" class="toolbar-btn" title="Configuración General">⚙️</button>
+        </div>
+    </div>
+
+    <div class="app-container">
+        
+        <div class="top-panel">
+            <div class="player-box box-dark" id="panel-aire" style="flex: 2; cursor: crosshair;" title="Clic derecho para adelantar/atrasar">
+                <canvas id="waveform-canvas"></canvas>
+                <div class="progress-bar-fill prog-normal" id="barra-progreso"></div>
+                
+                <div class="aire-text-container">
+                    <div class="header-title">En el aire - Reproduciendo ahora</div>
+                    <div class="track-title-large" id="txt-cancion">Esperando...</div>
+                    
+                    <div class="aire-bottom-info">
+                        
+                        <div class="time-block time-block-primary">
+                            <div class="time-readout-group">
+                                <span class="label" id="lbl-tiempo">Tiempo transcurrido</span>
+                                <div class="time-readout-row">
+                                    <span id="txt-tiempo" class="digital-time digital-time-main" style="cursor: pointer;" title="Clic para alternar Tiempo Restante / Transcurrido">00:00.0</span>
+                                    <span id="txt-cue-countdown" class="digital-time cue-countdown-display"></span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="vu-meters">
+                            <div class="vu-channel">
+                                <span class="vu-label">L</span>
+                                <div class="vu-bar-bg"><div class="vu-gradient"></div><div class="vu-cover" id="vu-l-cover"></div></div>
+                            </div>
+                            <div class="vu-channel">
+                                <span class="vu-label">R</span>
+                                <div class="vu-bar-bg"><div class="vu-gradient"></div><div class="vu-cover" id="vu-r-cover"></div></div>
+                            </div>
+                        </div>
+
+                        <div class="time-block" style="margin-left: 15px;">
+                            <span class="label">Acaba a las</span>
+                            <span id="txt-acaba" class="digital-time">00:00:00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="output-faders">
+                <div class="fader-container" title="Volumen General (Master)">
+                    <input type="range" id="master-volume" min="0" max="100" value="100" orient="vertical">
+                    <span class="fader-caption">PGM</span>
+                </div>
+                <div class="fader-container" id="monitor-fader-wrap" title="Volumen de Monitores" style="display: none;">
+                    <input type="range" id="monitor-volume" min="0" max="100" value="100" orient="vertical">
+                    <span class="fader-caption">MON</span>
+                </div>
+            </div>
+
+            <div class="top-right-col" style="flex: 1.2;">
+                <div class="player-box box-dark" id="panel-siguiente" style="flex: 1;">
+                    <div class="header-title">Siguiente (Q)</div>
+                    <div class="track-title-next" id="txt-siguiente">(Vacío)</div>
+                </div>
+                
+                <div class="widgets-bar">
+                    <div class="widget-item clock-widget" id="btn-reloj" title="Clic Izquierdo: Lanzar Hora | Clic Derecho: Agregar a la Lista" style="cursor: pointer; transition: 0.2s;">
+                        <span id="clock-date" style="font-size: 11px; color: #aaa; display: block; margin-bottom: 2px;">Cargando...</span>
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                            <span style="font-size: 18px; color: #00a8ff;">⌚</span>
+                            <span id="clock-time" style="font-size: 18px; font-weight: bold; color: #fff;">--:--:--</span>
+                        </div>
+                    </div>
+                    <div class="widget-item weather-widget" id="temp-widget">🌡️ -- °C</div>
+                    <div class="widget-item weather-widget" id="hum-widget">💧 -- %</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bottom-panel">
+            <div class="sidebar">
+                <div class="tabs">
+                    <button class="active" id="tab-btn-explorador">Explorador</button>
+                    <button id="tab-btn-eventos" style="min-width: 85px; transition: background-color 0.4s ease;">Eventos</button>
+                    <button id="tab-btn-fx" style="padding-left: 6px; padding-right: 6px;">FX</button>
+                    <button id="btn-open-encoder" style="margin-left: auto; background: transparent; color: #e74c3c; font-size: 18px; border: none; cursor: pointer; padding: 0 5px; border-radius: 4px; transition: 0.3s;" title="Transmitir por Internet (Encoder)">📡</button>
+                </div>
+                
+                <div class="sidebar-content active-content" id="content-explorador" style="display: flex;">
+                    <div class="explorer-content" id="file-explorer">
+                        <p style="padding: 15px; color: #888; text-align: center;">Cargando directorios...</p>
+                    </div>
+                </div>
+
+                <div class="sidebar-content" id="content-eventos" style="display: none; flex-direction: column;">
+                    <div class="events-top-bar">
+                        <label title="Habilitar el disparador automático de eventos"><input type="checkbox" id="chk-events-master" checked> Activar Eventos</label>
+                        <label title="Los eventos no saltarán solos, requerirán clic en Ejecutar"><input type="checkbox" id="chk-events-manual"> Solo Manual</label>
+                        <button id="btn-events-exec" class="mini-btn" style="margin-left: auto;">▶ Ejecutar</button>
+                    </div>
+                    <div class="events-top-bar event-prehold-bar">
+                        <label title="Si una cancion termina poco antes de un evento, espera el evento en vez de arrancar otra pista"><input type="checkbox" id="chk-event-prehold"> Proteger antes de evento</label>
+                        <input type="number" id="event-prehold-seconds" class="settings-input" min="1" max="120" step="1" style="width: 52px; padding: 3px 5px;">
+                        <span style="font-size: 10px; color: #888;">seg.</span>
+                    </div>
+                    <div class="events-list-container" style="flex: 1; overflow-y: auto; background: #111; transition: 0.3s;">
+                        <ul id="events-list" class="event-ul"></ul>
+                    </div>
+                    <div class="events-bottom-bar">
+                        <button id="btn-events-add" class="mini-btn">Añadir</button>
+                        <button id="btn-events-mod" class="mini-btn" disabled>Modificar</button>
+                        <button id="btn-events-list" class="mini-btn" style="margin-left: auto;">Lista ▼</button>
+                    </div>
+                </div>
+
+                <div class="sidebar-content" id="content-fx" style="display: none; padding: 10px; flex-direction: column; gap: 10px; overflow-y: auto;">
+                    <div class="events-top-bar" style="margin-bottom: 5px; justify-content: space-between; border: none; background: transparent; display: flex; align-items: center;">
+                        <span style="font-size: 11px; font-weight: bold; color: #00a8ff;" title="Arriba tiene mayor prioridad y se aplica al final de la cadena.">Orden de Efectos</span>
+                        <div style="display: flex; gap: 5px;">
+                            <button id="btn-fx-up" class="mini-btn" title="Subir Módulo seleccionado" style="padding: 2px 8px;">▲</button>
+                            <button id="btn-fx-down" class="mini-btn" title="Bajar Módulo seleccionado" style="padding: 2px 8px;">▼</button>
+                        </div>
+                    </div>
+                    
+                    <div id="fx-chain" style="display: flex; flex-direction: column; gap: 10px;">
+                        
+                        <div class="fx-module" data-id="eq" style="cursor: pointer; border: 2px solid transparent; transition: 0.2s;">
+                            <div class="fx-header" style="display: flex; align-items: center;">
+                                <span style="flex-grow: 1;">🎚️ Ecualizador Master</span>
+                                <label class="switch"><input type="checkbox" id="fx-eq-enable"> <span class="slider round"></span></label>
+                            </div>
+                            <div class="fx-body">
+                                <button id="btn-open-eq" class="settings-btn" style="width: 100%; margin-top: 8px;">🎛️ Abrir Panel Master</button>
+                            </div>
+                        </div>
+
+                        <div class="fx-module" data-id="comp" style="cursor: pointer; border: 2px solid transparent; transition: 0.2s;">
+                            <div class="fx-header" style="display: flex; align-items: center;">
+                                <span style="flex-grow: 1;">🗜️ Compresor (AGC)</span>
+                                <label class="switch"><input type="checkbox" id="fx-comp-enable" class="fx-mut"> <span class="slider round"></span></label>
+                            </div>
+                            <div class="fx-body">
+                                <p style="font-size: 11px; color: #888; margin: 0; pointer-events: none;">Nivela el volumen automáticamente.</p>
+                            </div>
+                        </div>
+
+                        <div class="fx-module" data-id="limiter" style="cursor: pointer; border: 2px solid transparent; transition: 0.2s;">
+                            <div class="fx-header" style="display: flex; align-items: center;">
+                                <span style="flex-grow: 1;">🛑 Limitador</span>
+                                <label class="switch"><input type="checkbox" id="fx-limiter-enable" class="fx-mut"> <span class="slider round"></span></label>
+                            </div>
+                            <div class="fx-body">
+                                <p style="font-size: 11px; color: #888; margin: 0; pointer-events: none;">Evita la saturación en picos altos.</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="system-log incident-widget" id="incident-panel">
+                    <div class="log-header">
+                        <span>Centro de Estado e Incidencias</span>
+                        <span class="incident-counter" id="incident-auto-count">AUTO 0</span>
+                    </div>
+                    <div class="incident-status-bar">
+                        <div class="incident-status-card" id="status-air">
+                            <span class="incident-status-label">Aire</span>
+                            <span class="incident-status-value">Detenido</span>
+                        </div>
+                        <div class="incident-status-card" id="status-events">
+                            <span class="incident-status-label">Eventos</span>
+                            <span class="incident-status-value">Activos</span>
+                        </div>
+                        <div class="incident-status-card" id="status-encoder">
+                            <span class="incident-status-label">Encoder</span>
+                            <span class="incident-status-value">Desconectado</span>
+                        </div>
+                        <div class="incident-status-card" id="status-session">
+                            <span class="incident-status-label">Sesion</span>
+                            <span class="incident-status-value">Nueva</span>
+                        </div>
+                    </div>
+                    <div class="incident-widget-actions">
+                        <button class="mini-btn" id="btn-open-reports" style="width: 100%;">Ver reportes</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="main-content">
+                <div class="controls-bar">
+                    <div class="controls-buttons">
+                        <button id="btn-play">▶ Play (P)</button>
+                        <button id="btn-pause">⏸ Pausa</button>
+                        <button id="btn-stop">⏹ Stop (S)</button>
+                        <button id="btn-next">⏭ Sig (N)</button>
+                        <button id="btn-stop-after" style="transition: 0.2s;" title="Pausar reproducción al finalizar la actual (F)">⏸⏹ Pausar Fin (F)</button>
+                    </div>
+                    <div class="playback-modes">
+                        <button id="btn-mode-looplist" class="mode-btn" title="Reproducción Infinita">🔁</button>
+                        <button id="btn-mode-remove" class="mode-btn" title="Eliminar al terminar">🗑️</button>
+                        <button id="btn-mode-repeat" class="mode-btn" title="Repetir canción">🔂</button>
+                    </div>
+                </div>
+
+                <div class="playlist-tabs-container">
+                    <button class="pl-tab active" data-tab="0">Playlist 1 <span class="pgm-dot" style="display:none;"></span></button>
+                    <button class="pl-tab" data-tab="1">Playlist 2 <span class="pgm-dot" style="display:none;"></span></button>
+                    <button class="pl-tab" data-tab="2">Playlist 3 <span class="pgm-dot" style="display:none;"></span></button>
+                    <button class="pl-tab" data-tab="3">Playlist 4 <span class="pgm-dot" style="display:none;"></span></button>
+                </div>
+
+                <div class="playlist-section" id="playlist-container">
+                    <table class="playlist-table" id="playlist-table">
+                        <thead>
+                            <tr>
+                                <th>Hora</th>
+                                <th>Título</th>
+                                <th>Duración</th>
+                                <th>Intro</th>
+                                <th>Outro</th>
+                            </tr>
+                        </thead>
+                    </table>
+                </div>
+
+                <div class="playlist-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="controls-info">Duración Lista Activa: <span id="txt-duracion-total">00:00:00</span></div>
+                    <div id="footer-events-warning" style="display: none; color: #e74c3c; font-weight: bold; font-size: 13px;">⛔️ Eventos desactivados</div>
+                </div>
+            </div>
+
+            <div class="cartwall-panel" id="right-panel-cartwall" style="display: none;">
+                <div class="cw-header">
+                    <span>🎛️ Botonera de efectos</span>
+                    <button id="cw-profile-button" class="cw-profile-button" title="Perfiles">👤 Principal</button>
+                    <button id="btn-undock-cartwall" class="toolbar-btn" title="Desacoplar a ventana flotante">⏏️</button>
+                </div>
+                <div class="cw-tabs-container" id="cw-tabs">
+                </div>
+                <div class="cw-grid-container" id="cw-grid">
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="eq-modal" class="modal-overlay" style="display: none; z-index: 9999;">
+        <div class="modal-content" style="width: 580px; position: relative;">
+            <h3 style="color: #00a8ff; margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px;">🎚️ Panel Master y Ecualizador (8 Bandas)</h3>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: #111; padding: 10px; border-radius: 4px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 12px; color: #aaa;">Preajuste (EQ):</span>
+                    <select id="eq-preset-select" class="settings-btn" style="width: 180px; background: #222; color: #fff; border: 1px solid #444; padding: 5px; outline: none;"></select>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button id="btn-eq-save-preset" class="settings-btn" style="background-color: #2980b9; color: white; font-size: 11px;">💾 Guardar nuevo</button>
+                    <button id="btn-eq-delete-preset" class="settings-btn" style="background-color: #c0392b; color: white; font-size: 11px; display: none;">🗑️ Eliminar</button>
+                </div>
+            </div>
+
+            <div id="save-preset-form" style="display: none; background: #1a1a1c; padding: 15px; border: 1px solid #333; border-radius: 4px; margin-bottom: 15px;">
+                <label style="color: #ccc; font-size: 12px; margin-bottom: 5px; display: block;">Nombre del Preajuste:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="preset-name-input" class="settings-btn" style="flex: 1; background: #111; color: white; border: 1px solid #444; padding: 5px; outline: none;" placeholder="Ej. Mi Ecualización Nocturna">
+                    <button id="btn-confirm-save-preset" class="settings-btn" style="background-color: #27ae60; color: white; padding: 5px 15px;">Guardar</button>
+                    <button id="btn-cancel-save-preset" class="settings-btn" style="background-color: #555; color: white; padding: 5px 15px;">Cancelar</button>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; background: #0a0a0c; padding: 15px; border-radius: 4px; border: 1px solid #333; margin-bottom: 20px;">
+                <div style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                    <span style="font-size: 11px; color: #888; margin-bottom: 5px; font-weight: bold;">PRE-AMP / GAIN</span>
+                    <span id="preamp-val" style="color:#00a8ff; font-family: Consolas; font-size: 14px; margin-bottom: 5px;">0 dB</span>
+                    <input type="range" id="eq-preamp-slider" title="Doble clic para reiniciar" min="-12" max="12" step="0.5" value="0" style="width: 80%;">
+                </div>
+
+                <div style="display: flex; flex-direction: column; align-items: center; flex: 1; border-left: 1px solid #333; border-right: 1px solid #333;">
+                    <span style="font-size: 11px; color: #888; margin-bottom: 5px; font-weight: bold;">PANEO (L/R)</span>
+                    <span id="pan-val" style="color:#00a8ff; font-family: Consolas; font-size: 14px; margin-bottom: 5px;">C (Centro)</span>
+                    <input type="range" id="eq-pan-slider" title="Efecto Imán en el Centro. Doble clic para reiniciar" min="-1" max="1" step="0.05" value="0" style="width: 80%;">
+                </div>
+
+                <div style="display: flex; flex-direction: column; align-items: center; flex: 1; justify-content: center;">
+                    <span style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: bold;">MODO DE AUDIO</span>
+                    <label class="switch" title="Activar para forzar salida a Mono">
+                        <input type="checkbox" id="eq-mono-toggle"> 
+                        <span class="slider round"></span>
+                    </label>
+                    <span id="mono-val" style="font-size: 11px; color: #2ecc71; margin-top: 5px; font-weight:bold; font-family: Consolas;">ESTÉREO</span>
+                </div>
+            </div>
+
+            <p style="font-size: 12px; color: #888; margin-bottom: 15px; text-align: center;">Haz doble clic en cualquier perilla para llevarla a 0.</p>
+            <div class="eq-container" id="eq-bands-container" style="height: 140px; margin-bottom: 25px; padding: 0 10px;"></div>
+            
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid #333; padding-top: 15px;">
+                <button id="btn-eq-reset" class="settings-btn" style="background-color: #d35400; color: white;">↺ Restablecer Todo</button>
+                <div style="display: flex; gap: 10px;">
+                    <button id="btn-eq-cancel" class="settings-btn" style="background-color: #c0392b; color: white;">❌ Cancelar</button>
+                    <button id="btn-eq-save" class="settings-btn" style="background-color: #27ae60; color: white;">💾 Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="explorer-folder-menu" class="context-menu" style="display: none;">
+        <div class="context-item" id="ctx-add-random">🔀 Agregar carpeta como pista aleatoria</div>
+        <div class="context-item" id="ctx-add-all">➕ Agregar todo el contenido normal</div>
+        <div class="context-separator"></div>
+        <div class="context-item has-submenu">
+            <span style="display: flex; justify-content: space-between;">Establecer tipo de archivo <span>▶</span></span>
+            <div class="submenu" id="exp-folder-type-list" style="max-height: 250px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <div id="explorer-file-menu" class="context-menu" style="display: none;">
+        <div class="context-item" id="ctx-file-add">➕ Agregar a la lista</div>
+        <div class="context-item" id="ctx-file-preview">🔊 Escucha previa</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="ctx-file-edit" style="color: #00a8ff;">🎧 Editor de Pistas Avanzado</div>
+    </div>
+
+    <div id="playlist-context-menu" class="context-menu" style="display: none;">
+        <div class="context-item" id="pm-preview">🔊 Escucha previa</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="pm-cut">Cortar</div>
+        <div class="context-item" id="pm-copy">Copiar</div>
+        <div class="context-item" id="pm-paste">Pegar</div>
+        <div class="context-separator"></div>
+        <div class="context-item has-submenu" id="pm-tools">
+            <span style="display: flex; justify-content: space-between;">Herramientas <span>▶</span></span>
+            <div class="submenu submenu-tools">
+                <div class="context-item" id="pm-advanced-edit" style="color: #00a8ff;">🎧 Editor de Pistas Avanzado</div>
+                <div class="context-item" id="pm-transition-edit" style="color: #2ecc71;">🔀 Editar Transición Musical</div>
+                <div class="context-item" id="pm-jingle-edit" style="color: #f39c12;">🎙️ Editar Cruce con Pisador</div>
+                <div class="context-separator"></div>
+                <div class="context-item" id="pm-edit-name">Editar nombre simple...</div>
+                <div class="context-item has-submenu" id="pm-set-type">
+                    <span style="display: flex; justify-content: space-between;">Establecer tipo de archivo <span>▶</span></span>
+                    <div class="submenu" id="pm-type-list" style="max-height: 250px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="pm-toggle-temp">&#9203; Marcar / Desmarcar Temporal</div>
+        <div class="context-item" id="pm-shuffle">&#128256; Mezclar lista</div>
+        <div class="context-item" id="pm-set-next"><span style="display: flex; justify-content: space-between;">Agregar como siguiente <span style="color: #888;">Q</span></span></div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="pm-clear">&#128465;&#65039; Borrar toda la lista</div>
+        <div class="context-item" id="pm-delete" style="color: #e74c3c;">&#10060; Borrar cancion actual</div>
+    </div>
+
+    <div id="events-list-menu" class="context-menu" style="display: none;">
+        <div class="context-item" id="em-calendar">🗓️ Abrir Calendario Semanal</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="em-load">Cargar Evento...</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="em-save-all">Guardar Todo (Respaldo General)</div>
+    </div>
+
+    <div id="event-item-menu" class="context-menu" style="display: none;">
+        <div class="context-item" id="eim-exec">&#9654; Ejecutar ahora</div>
+        <div class="context-item" id="eim-ignore" title="Omitir solo el pase actual de la hora">&#9940; Ignorar este pase</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="eim-mod" style="color: #00a8ff;">&#9999;&#65039; Modificar evento</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="eim-del" style="color: #e74c3c;">&#128465;&#65039; Eliminar evento</div>
+    </div>
+
+    <div id="group-context-menu" class="context-menu" style="display: none;">
+        <div class="context-item" id="gm-edit">&#9999;&#65039; Editar Grupo...</div>
+    </div>
+
+    <div id="cw-context-menu" class="context-menu" style="display: none; z-index: 3000;">
+        <div class="context-item" id="menu-editar">✏️ Editar...</div>
+        <div class="context-item" id="menu-limpiar">🗑️ Limpiar</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="menu-bucle"><span id="check-bucle" style="display:inline-block; width:15px; color:#2ecc71;"></span> 🔁 Bucle</div>
+        <div class="context-item" id="menu-overlap"><span id="check-overlap" style="display:inline-block; width:15px; color:#2ecc71;"></span> 🔀 Superposición</div>
+        <div class="context-item" id="menu-restart"><span id="check-restart" style="display:inline-block; width:15px; color:#2ecc71;"></span> ↺ Reiniciar al hacer clic</div>
+        <div class="context-item" id="menu-detener"><span id="check-detener" style="display:inline-block; width:15px; color:#2ecc71;"></span> ⏹ Detener otros</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="menu-previa">🎧 Escucha previa</div>
+    </div>
+
+    <div id="cw-tab-context-menu" class="context-menu" style="display: none; z-index: 3000;">
+        <div class="context-item" id="tab-menu-editar">✏️ Editar Botonera...</div>
+        <div class="context-separator"></div>
+        <div class="context-item" id="tab-menu-eliminar" style="color: #e74c3c;">❌ Eliminar Botonera</div>
+    </div>
+    <div id="cw-profile-modal" class="modal-overlay" style="display: none; z-index: 3000;">
+        <div class="modal-content" style="width: 320px;">
+            <div class="modal-header" style="display: flex; justify-content: space-between;"><h3 id="cw-profile-modal-title" style="margin: 0; color:#00a8ff;">Nuevo Perfil</h3></div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                <label style="font-size: 12px; color:#aaa;">Nombre del Perfil:</label>
+                <input type="text" id="cw-profile-name" class="settings-input">
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color Texto:</label><input type="color" id="cw-profile-text-color" class="color-picker-native" value="#ffffff"></div>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid #333;">
+                <button id="btn-cancel-cw-profile" class="settings-btn" style="background: #c0392b;">Cancelar</button>
+                <button id="btn-save-cw-profile" class="settings-btn" style="background: #27ae60;">Guardar Perfil</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="cw-profile-menu" class="context-menu" style="display: none; z-index: 3000;"></div>
+
+    <div id="playlist-note-modal" class="modal-overlay" style="display: none; z-index: 9999;">
+        <div class="modal-content playlist-note-modal-content">
+            <h3>Escribe tu nota</h3>
+            <textarea id="playlist-note-input" class="settings-input playlist-note-input" spellcheck="true"></textarea>
+            <div class="playlist-note-actions">
+                <button id="btn-cancel-playlist-note" class="settings-btn" style="background: #444;">Cancelar</button>
+                <button id="btn-accept-playlist-note" class="settings-btn" style="background: #27ae60;">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="playlist-event-modal" class="modal-overlay" style="display: none; z-index: 9999;">
+        <div class="modal-content playlist-event-modal-content">
+            <h3>Seleccionar evento</h3>
+            <div class="playlist-event-list-wrap">
+                <ul id="playlist-event-list" class="event-ul playlist-event-list"></ul>
+            </div>
+            <div class="playlist-note-actions">
+                <button id="btn-cancel-playlist-event" class="settings-btn" style="background: #444;">Cancelar</button>
+                <button id="btn-accept-playlist-event" class="settings-btn" style="background: #27ae60;">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="rotation-modal" class="modal-overlay" style="display: none; z-index: 9998;">
+        <div class="modal-content rotation-modal-content">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0; color:#00a8ff;">Generador de Playlists (en desarrollo)</h3>
+                    <p style="margin: 4px 0 0; color:#8f96a3; font-size: 12px;">Usa tipos de archivo, generos de biblioteca y reglas de separacion.</p>
+                </div>
+                <button id="btn-close-rotation" class="close-btn" style="background:transparent; border:none; color:white; cursor:pointer;">X</button>
+            </div>
+            <div class="rotation-grid">
+                <div class="rotation-panel">
+                    <label class="rotation-label">Patron del reloj</label>
+                    <textarea id="rotation-pattern" class="settings-input rotation-pattern" spellcheck="false"></textarea>
+                    <div id="rotation-category-palette" class="rotation-category-palette"></div>
+                </div>
+                <div class="rotation-panel">
+                    <label class="rotation-label">Duracion objetivo</label>
+                    <div class="rotation-row"><input type="text" id="rotation-target-min" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="60"><span>minutos</span></div>
+                    <label class="rotation-label">Separacion minima</label>
+                    <div class="rotation-row"><span>Artista</span><input type="text" id="rotation-sep-artist" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="4"><span>pistas</span></div>
+                    <div class="rotation-row"><span>Titulo</span><input type="text" id="rotation-sep-title" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="8"><span>pistas</span></div>
+                    <div class="rotation-row"><span>Carpeta</span><input type="text" id="rotation-sep-folder" class="dark-number" inputmode="numeric" pattern="[0-9]*" value="2"><span>pistas</span></div>
+                    <label class="rotation-check"><input type="checkbox" id="rotation-clear-list"> Reemplazar lista activa si esta detenida</label>
+                    <div id="rotation-summary" class="rotation-summary">Listo para construir una hora musical.</div>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid #333;">
+                <button id="btn-cancel-rotation" class="settings-btn" style="background: #c0392b; color: white;">Cancelar</button>
+                <button id="btn-preview-rotation" class="settings-btn">Preflight</button>
+                <button id="btn-build-rotation" class="settings-btn" style="background: #27ae60;">Generar en playlist</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="cw-edit-modal" class="modal-overlay" style="display: none; z-index: 3000;">
+        <div class="modal-content" style="width: 320px;">
+        <div class="modal-header" style="display: flex; justify-content: space-between;"><h3 style="margin: 0; color:#00a8ff;">Editar Efecto</h3></div>
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+            <label style="font-size: 12px; color:#aaa;">Ruta del archivo:</label>
+            <div style="display: flex; gap: 5px;">
+                <input type="text" id="cw-edit-filepath" class="settings-input" style="flex:1;" readonly>
+                <select id="cw-edit-type" class="dark-select" title="Tipo de efecto" style="width: 30px; padding: 4px;">
+                    <option value="audio">Audio</option>
+                    <option value="time">Locución de hora</option>
+                    <option value="temperature" disabled>Temperatura (próximamente)</option>
+                    <option value="humidity" disabled>Humedad (próximamente)</option>
+                </select>
+                <button id="btn-select-file" class="settings-btn">...</button>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Nombre:</label><input type="text" id="cw-edit-name" class="settings-input" style="width: 100%; box-sizing: border-box;"></div>
+                <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Volumen:</label><input type="range" id="cw-edit-volume" min="0" max="1" step="0.01" value="1" style="width: 100%;"></div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color de fondo:</label><input type="color" id="cw-edit-bg-color" class="color-picker-native" value="#444444"></div>
+                <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color de texto:</label><input type="color" id="cw-edit-text-color" class="color-picker-native" value="#FFFFFF"></div>
+            </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid #333;">
+            <button id="btn-cancel-cw-edit" class="settings-btn" style="background: #444;">Cancelar</button>
+            <button id="btn-save-cw-edit" class="settings-btn" style="background: #27ae60;">Aceptar</button>
+        </div>
+        </div>
+    </div>
+
+    <div id="cw-tab-modal" class="modal-overlay" style="display: none; z-index: 3000;">
+        <div class="modal-content" style="width: 320px;">
+        <div class="modal-header" style="display: flex; justify-content: space-between;"><h3 id="cw-tab-modal-title" style="margin: 0; color:#00a8ff;">Configurar Botonera</h3></div>
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+            <label style="font-size: 12px; color:#aaa;">Nombre de la botonera:</label>
+            <input type="text" id="cw-tab-name" class="settings-input">
+            <div style="display: flex; gap: 10px;">
+                <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Vertical (Filas):</label><input type="number" id="cw-tab-v" class="settings-input" min="1" max="20" value="5" style="width: 100%; box-sizing: border-box;"></div>
+                <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Horizontal (Col):</label><input type="number" id="cw-tab-h" class="settings-input" min="1" max="20" value="5" style="width: 100%; box-sizing: border-box;"></div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color Fondo:</label><input type="color" id="cw-tab-bg-color" class="color-picker-native" value="#3a3f44"></div>
+                <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color Texto:</label><input type="color" id="cw-tab-text-color" class="color-picker-native" value="#cccccc"></div>
+            </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid #333;">
+            <button id="btn-cancel-cw-tab" class="settings-btn" style="background: #c0392b;">Cancelar</button>
+            <button id="btn-save-cw-tab" class="settings-btn" style="background: #27ae60;">Aceptar</button>
+        </div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

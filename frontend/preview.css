@@ -1,0 +1,115 @@
+body.preview-body {
+    background-color: #1a1a1c;
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, sans-serif;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    border: 1px solid #333;
+    box-sizing: border-box;
+}
+
+.preview-container {
+    width: 100%;
+    height: 100%;
+    padding: 15px 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; /* Distribuye el espacio sobrante equitativamente */
+    box-sizing: border-box;
+}
+
+/* --- HEADER (TÍTULO Y ICONO) --- */
+.preview-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    background: #222225;
+    padding: 12px 15px;
+    border-radius: 6px;
+    border: 1px solid #444;
+}
+
+.preview-icon {
+    font-size: 26px;
+    color: #00a8ff;
+}
+
+.preview-track-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.preview-title {
+    font-size: 15px;
+    font-weight: bold;
+    color: #ffffff;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    display: block;
+    line-height: 1.3;
+}
+
+/* --- BARRA DE TIEMPO --- */
+.preview-timeline {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    font-family: Consolas, monospace;
+    color: #ccc;
+    background: #111;
+    padding: 10px 12px;
+    border-radius: 6px;
+}
+
+.preview-progress-bg {
+    flex: 1;
+    height: 14px;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 6px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.preview-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #0097e6, #00a8ff);
+    pointer-events: none;
+    border-radius: 6px;
+}
+
+/* --- BOTÓN STOP --- */
+.preview-controls {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 5px;
+}
+
+.preview-stop-btn {
+    background: #c0392b;
+    color: #fff;
+    border: 1px solid #e74c3c;
+    border-radius: 6px;
+    width: 80px;
+    height: 38px;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.2s;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.4);
+}
+
+.preview-stop-btn:hover {
+    background: #e74c3c;
+    transform: scale(1.05);
+    border-color: #ff7675;
+}

@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Ajustes Generales</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="settings-window-body">
+    <div class="settings-layout">
+        <div class="settings-sidebar">
+            <button class="settings-tab active" data-target="tab-fades">Excepciones Mezclar</button>
+            <button class="settings-tab" data-target="tab-types">Tipos de Archivos</button>
+            <button class="settings-tab" data-target="tab-audio">Salidas de Audio</button>
+            <button class="settings-tab" data-target="tab-time">Hora y Clima</button>
+            <button class="settings-tab" data-target="tab-ducking">Pisadores (Ducking)</button>
+            <button class="settings-tab" data-target="tab-cartwall">Perfiles Cartwall</button>
+            <button class="settings-tab" data-target="tab-shortcuts" style="color: #666;">Atajos (Proximamente)</button>
+        </div>
+
+        <div class="settings-content">
+            <div id="tab-fades" class="tab-pane active">
+                <h3 class="tab-title">Excepciones de Faders por Tipo</h3>
+
+                <div class="settings-group">
+                    <label>Seleccionar Tipo de Archivo:</label>
+                    <select id="sel-tipo-archivo" class="dark-select"></select>
+                </div>
+
+                <div style="display: flex; gap: 20px; margin-top: 15px;">
+                    <fieldset class="fieldset-dark" style="flex: 1;">
+                        <legend>Entrada (Fade In)</legend>
+                        <div class="setting-row">
+                            <label><input type="checkbox" id="chk-fadein"> Activar</label>
+                            <input type="number" id="num-fadein" class="dark-number" step="0.1" min="0" value="0"> seg
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="fieldset-dark" style="flex: 1;">
+                        <legend>Salida (Fade Out)</legend>
+                        <div class="setting-row">
+                            <label><input type="checkbox" id="chk-fadeout"> Activar</label>
+                            <input type="number" id="num-fadeout" class="dark-number" step="0.1" min="0" value="0"> seg
+                        </div>
+                    </fieldset>
+                </div>
+
+                <div style="display: flex; gap: 20px;">
+                    <fieldset class="fieldset-dark" style="flex: 1;">
+                        <legend>Punto de Mezcla (MIX)</legend>
+                        <div class="setting-row">
+                            <label title="Tiempo fijo antes del final de la cancion"><input type="checkbox" id="chk-mix"> Fijo</label>
+                            <input type="number" id="num-mix" class="dark-number" step="0.1" min="0" value="0"> seg
+                        </div>
+                        <div class="setting-row" style="margin-top: 10px;">
+                            <label title="Usa el nivel de decibelios para calcular el corte"><input type="checkbox" id="chk-mix-db"> Inteligente (dB)</label>
+                            <input type="number" id="num-mix-db" class="dark-number" step="1" max="0" value="-14"> dB
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="fieldset-dark" style="flex: 1;">
+                        <legend>Fade Out de Mezcla</legend>
+                        <div class="setting-row">
+                            <label title="Baja la cola automaticamente desde el MIX hasta el FIN"><input type="checkbox" id="chk-mix-fadeout"> Activar</label>
+                        </div>
+                        <p style="font-size: 12px; color: #888; margin: 10px 0 0;">Si está activo, la bajada usa el tiempo restante entre MIX y FIN. Si está desactivado, la cola sigue completa hasta FIN.</p>
+                    </fieldset>
+                </div>
+            </div>
+
+            <div id="tab-types" class="tab-pane">
+                <h3 class="tab-title">Gestion de Tipos de Archivo</h3>
+                <p style="font-size: 12px; color: #888; margin-bottom: 15px;">Anade identificadores (nombres de carpeta o sufijos en las canciones) para aplicarles comportamientos y colores automaticos.</p>
+
+                <div class="file-types-layout">
+                    <div class="file-types-list-col">
+                        <ul id="file-types-list" class="dark-list"></ul>
+                        <div class="list-actions">
+                            <button id="btn-add-type" class="icon-btn" title="Anadir nuevo">+</button>
+                            <button id="btn-del-type" class="icon-btn" title="Eliminar seleccionado" style="color:#e74c3c;">X</button>
+                        </div>
+                    </div>
+
+                    <div class="file-types-details-col">
+                        <fieldset class="fieldset-dark" style="margin-bottom: 0;">
+                            <legend>Propiedades del Tipo</legend>
+
+                            <div class="setting-row">
+                                <label style="width: 120px;">Nombre:</label>
+                                <input type="text" id="type-name" class="settings-input" style="flex: 1;">
+                            </div>
+
+                            <div class="setting-row">
+                                <label style="width: 120px;">Identificador:</label>
+                                <input type="text" id="type-identifier" class="settings-input" style="flex: 1;" placeholder="Ej: _comercial">
+                            </div>
+
+                            <div class="setting-row">
+                                <label style="width: 120px;">Color (Lista):</label>
+                                <div style="display:flex; gap:10px; align-items:center; flex: 1;">
+                                    <input type="color" id="type-color" class="color-picker-native">
+                                </div>
+                            </div>
+
+                            <div class="setting-row" style="margin-top: 15px;">
+                                <label style="width: 120px;" title="Ajuste de ganancia automatico">Nivel (Amp):</label>
+                                <input type="number" id="type-amp" class="dark-number" step="1" value="0"> <span style="font-size: 12px; color: #888;">dB</span>
+                            </div>
+
+                            <div class="setting-row" style="margin-top: 15px;">
+                                <label><input type="checkbox" id="type-report"> Incluir en Reportes de Emision</label>
+                            </div>
+                            <div class="setting-row">
+                                <label><input type="checkbox" id="type-voice"> Es Locucion/Voz (Atenua la musica de fondo)</label>
+                            </div>
+                        </fieldset>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-audio" class="tab-pane">
+                <h3 class="tab-title">Motor y Salidas de Audio</h3>
+                <p class="settings-intro">El <code>Master</code> sigue siendo la salida principal al aire. Desde aqui puedes activar monitoreo, decidir como salen las playlists y elegir a donde va la botonera sin dejar reproductores residuales cargando el sistema.</p>
+
+                <div class="audio-settings-grid">
+                    <fieldset class="fieldset-dark audio-card">
+                        <legend>Motor</legend>
+                        <div class="setting-row setting-row-compact">
+                            <label style="width: 220px;">Motor activo:</label>
+                            <select id="sel-audio-engine-mode" class="dark-select" style="flex: 1;">
+                                <option value="webAudio">WebAudio actual (estable)</option>
+                                <option value="rustAudio">Rust Audio (preparado / fallback)</option>
+                            </select>
+                        </div>
+                        <p class="audio-hint">Rust queda preparado por bandera. Si aun no esta disponible, la emision conserva WebAudio como fallback.</p>
+                    </fieldset>
+
+                    <fieldset class="fieldset-dark audio-card">
+                        <legend>Ruta Principal</legend>
+                        <div class="setting-row setting-row-compact">
+                            <label style="width: 220px;">Salida Master (Aire):</label>
+                            <select id="sel-out-main" class="dark-select" style="flex: 1;"></select>
+                        </div>
+                        <div class="setting-row setting-row-block">
+                            <label><input type="checkbox" id="chk-monitor-enabled"> Activar salida de monitores</label>
+                        </div>
+                        <div class="setting-row setting-row-compact" id="monitor-output-row">
+                            <label style="width: 220px;">Salida de Monitores:</label>
+                            <select id="sel-out-monitor" class="dark-select" style="flex: 1;"></select>
+                        </div>
+                        <div class="setting-row setting-row-compact" id="monitor-source-row">
+                            <label style="width: 220px;">Escucha de monitor:</label>
+                            <select id="sel-monitor-source-mode" class="dark-select" style="flex: 1;">
+                                <option value="postFx">Post-FX / salida master</option>
+                                <option value="preFx">Pre-FX / mezcla limpia</option>
+                            </select>
+                        </div>
+                        <div class="setting-row setting-row-block" id="monitor-volume-ui-toggle-row">
+                            <label><input type="checkbox" id="chk-monitor-volume-ui"> Mostrar control de volumen MON en la ventana principal</label>
+                        </div>
+                        <div class="setting-row setting-row-compact" id="monitor-volume-ui-mode-row">
+                            <label style="width: 220px;">Ubicacion del control MON:</label>
+                            <select id="sel-monitor-volume-ui-mode" class="dark-select" style="flex: 1;">
+                                <option value="inline">Junto al fader Master</option>
+                                <option value="icon">Como icono desplegable arriba</option>
+                            </select>
+                        </div>
+                        <p class="audio-hint">El monitoreo sale apagado por defecto. Al activarlo, puede escuchar el <code>Master</code> ya procesado o la mezcla limpia antes de efectos.</p>
+                    </fieldset>
+
+                    <fieldset class="fieldset-dark audio-card">
+                        <legend>Preescucha y Editores</legend>
+                        <div class="setting-row setting-row-compact">
+                            <label style="width: 220px;">Salida CUE / Preescucha:</label>
+                            <select id="sel-out-cue" class="dark-select" style="flex: 1;"></select>
+                        </div>
+                        <p class="audio-hint">La escucha previa y los tres editores usan esta misma ruta para que todo el trabajo de chequeo salga junto por la preescucha.</p>
+                    </fieldset>
+
+                    <fieldset class="fieldset-dark audio-card audio-card-span">
+                        <legend>Playlists</legend>
+                        <div class="setting-row setting-row-compact">
+                            <label style="width: 260px;">Modo de salida auxiliar:</label>
+                            <select id="sel-playlist-output-mode" class="dark-select" style="flex: 1;">
+                                <option value="disabled">Desactivado</option>
+                                <option value="shared">Todas por la misma tarjeta</option>
+                                <option value="independent">Una tarjeta por playlist</option>
+                            </select>
+                        </div>
+
+                        <div id="playlist-shared-output-wrap" class="audio-stack">
+                            <div class="setting-row setting-row-compact">
+                                <label style="width: 260px;">Salida compartida playlists:</label>
+                                <select id="sel-playlist-shared" class="dark-select" style="flex: 1;"></select>
+                            </div>
+                        </div>
+
+                        <div id="playlist-independent-output-wrap" class="audio-stack">
+                            <div class="setting-row setting-row-compact">
+                                <label style="width: 260px;">Playlist 1:</label>
+                                <select id="sel-pl-out-1" class="dark-select" style="flex: 1;"></select>
+                            </div>
+                            <div class="setting-row setting-row-compact">
+                                <label style="width: 260px;">Playlist 2:</label>
+                                <select id="sel-pl-out-2" class="dark-select" style="flex: 1;"></select>
+                            </div>
+                            <div class="setting-row setting-row-compact">
+                                <label style="width: 260px;">Playlist 3:</label>
+                                <select id="sel-pl-out-3" class="dark-select" style="flex: 1;"></select>
+                            </div>
+                            <div class="setting-row setting-row-compact" style="margin-bottom: 0;">
+                                <label style="width: 260px;">Playlist 4:</label>
+                                <select id="sel-pl-out-4" class="dark-select" style="flex: 1;"></select>
+                            </div>
+                        </div>
+
+                        <p class="audio-hint">Estas salidas son auxiliares para flujo de trabajo y monitoreo. Las playlists siguen conectadas al <code>Master</code> para mantener la emision continua.</p>
+                    </fieldset>
+
+                    <fieldset class="fieldset-dark audio-card">
+                        <legend>Botonera / Cartwall</legend>
+                        <div class="setting-row setting-row-compact">
+                            <label style="width: 220px;">Destino del cartwall:</label>
+                            <select id="sel-cartwall-mode" class="dark-select" style="flex: 1;">
+                                <option value="master">Master (aire)</option>
+                                <option value="monitor">Monitores</option>
+                                <option value="cue">CUE / Preescucha</option>
+                                <option value="device">Tarjeta dedicada</option>
+                            </select>
+                        </div>
+                        <div class="setting-row setting-row-compact" id="cartwall-device-row">
+                            <label style="width: 220px;">Tarjeta dedicada:</label>
+                            <select id="sel-out-cartwall" class="dark-select" style="flex: 1;"></select>
+                        </div>
+                        <p class="audio-hint">Los sonidos temporales del cartwall se liberan al terminar, evitando acumulacion de reproductores en memoria.</p>
+                    </fieldset>
+                </div>
+            </div>
+
+            <div id="tab-time" class="tab-pane">
+                <h3 class="tab-title">Hora y Clima</h3>
+                
+                <fieldset class="fieldset-dark" style="margin-bottom: 20px;">
+                    <legend>Locucion Horaria</legend>
+                    <p style="font-size: 12px; color: #888; margin-bottom: 15px;">Selecciona la carpeta donde se encuentran los archivos de voz para la hora (Ejemplo: HRS01.mp3, MIN15.mp3).</p>
+
+                    <div class="setting-row">
+                        <label style="width: 120px;">Ruta de audios:</label>
+                        <input type="text" id="txt-time-folder" class="settings-input" style="flex: 1; color: #aaa;" readonly placeholder="No se ha configurado ninguna carpeta">
+                        <button id="btn-browse-time" class="settings-btn" style="margin-left: 10px;">Examinar...</button>
+                    </div>
+                </fieldset>
+
+                <fieldset class="fieldset-dark">
+                    <legend>Locucion de Clima (Temperatura y Humedad)</legend>
+                    <p style="font-size: 12px; color: #888; margin-bottom: 15px;">Escribe tu ciudad para obtener la temperatura y humedad actual automaticamente.</p>
+                    
+                    <div class="setting-row" style="margin-bottom: 15px;">
+                        <label style="width: 120px;">Ciudad/Municipio:</label>
+                        <input type="text" id="txt-weather-city" list="weather-city-suggestions" class="settings-input" style="flex: 1;" placeholder="Ejemplo: Lima, PE o Madrid, ES" autocomplete="off">
+                        <datalist id="weather-city-suggestions"></datalist>
+                        <button id="btn-weather-fetch" class="settings-btn" style="margin-left: 10px;">Comprobar</button>
+                    </div>
+
+                    <div class="setting-row" style="margin-bottom: 15px;">
+                        <label style="width: 120px;">Unidad:</label>
+                        <select id="sel-weather-unit" class="dark-select" style="flex: 1;">
+                            <option value="metric">Centigrados (°C)</option>
+                            <option value="imperial">Fahrenheit (°F)</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-row" style="margin-bottom: 5px; border-top: 1px solid #333; padding-top: 15px;">
+                        <label style="width: 120px;">Dato actual:</label>
+                        <span id="lbl-weather-temp" style="font-size: 18px; font-weight: bold; color: #2ecc71;">-- °C</span>
+                        <label style="width: 80px; margin-left: 20px;">Humedad:</label>
+                        <span id="lbl-weather-humidity" style="font-size: 18px; font-weight: bold; color: #3498db;">-- %</span>
+                    </div>
+                    <div class="setting-row" style="margin-bottom: 15px;">
+                        <label style="width: 120px;"></label>
+                        <span id="lbl-weather-updated" style="font-size: 11px; color: #888;">Última actualización: Nunca</span>
+                    </div>
+
+                    <div class="setting-row" style="margin-top: 15px; border-top: 1px solid #333; padding-top: 15px;">
+                        <label style="width: 120px;">Carpeta de audios:</label>
+                        <input type="text" id="txt-weather-folder" class="settings-input" style="flex: 1; color: #aaa;" readonly placeholder="Carpeta de locuciones de clima">
+                        <button id="btn-browse-weather" class="settings-btn" style="margin-left: 10px;">Examinar...</button>
+                    </div>
+                </fieldset>
+            </div>
+
+            <div id="tab-ducking" class="tab-pane">
+                <h3 class="tab-title">Configuracion de Pisadores / Superposicion</h3>
+                <p style="font-size: 12px; color: #888; margin-bottom: 15px;">Ajusta como se comporta la musica principal cuando lanzas la Locucion de Hora, marcadores Overlay (P1, P2) o audios desde el Cartwall.</p>
+                <div class="fieldset-dark">
+                    <div class="setting-row">
+                        <label style="width: 250px;">Volumen de la musica de fondo:</label>
+                        <input type="number" id="num-duck-vol" class="dark-number" min="0" max="100" value="20"> %
+                    </div>
+                    <div class="setting-row" style="margin-top: 15px;">
+                        <label style="width: 250px;">Tiempo de fundido al subir/bajar (Fade):</label>
+                        <input type="number" id="num-duck-fade" class="dark-number" step="0.1" min="0.1" value="1.0"> seg
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-cartwall" class="tab-pane">
+                <h3 class="tab-title">Perfiles de la Botonera (Cartwall)</h3>
+                <p style="font-size: 12px; color: #888; margin-bottom: 15px;">Crea y organiza multiples perfiles de botonera. Util si varios locutores usan el mismo programa.</p>
+
+                <div class="file-types-layout">
+                    <div class="file-types-list-col">
+                        <ul id="cw-profile-list" class="dark-list"></ul>
+                        <div class="list-actions" style="display: flex; gap: 5px; flex-wrap: wrap;">
+                            <button id="btn-cw-add" class="icon-btn" title="Nuevo Perfil">+</button>
+                            <button id="btn-cw-del" class="icon-btn" title="Eliminar Perfil" style="color:#e74c3c;">X</button>
+                            <button id="btn-cw-import" class="icon-btn" title="Importar">IMP</button>
+                            <button id="btn-cw-export" class="icon-btn" title="Exportar">EXP</button>
+                        </div>
+                    </div>
+
+                    <div class="file-types-details-col">
+                        <fieldset class="fieldset-dark" style="margin-bottom: 0;">
+                            <legend>Propiedades del Perfil</legend>
+
+                            <div class="setting-row" style="margin-bottom: 15px;">
+                                <label style="width: 100px;">Nombre:</label>
+                                <input type="text" id="cw-prof-name" class="settings-input" style="flex: 1;">
+                            </div>
+
+                            <div class="setting-row">
+                                <label style="width: 100px;">Color Fondo:</label>
+                                <input type="color" id="cw-prof-bg" class="color-picker-native" value="#008c3a">
+                            </div>
+
+                            <div class="setting-row">
+                                <label style="width: 100px;">Color Texto:</label>
+                                <input type="color" id="cw-prof-text" class="color-picker-native" value="#ffffff">
+                            </div>
+
+                            <div style="text-align: right; margin-top: 10px;">
+                                <button id="btn-cw-activate" class="settings-btn" style="background-color: #00a8ff; color: white;">Activar este Perfil</button>
+                            </div>
+                        </fieldset>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-shortcuts" class="tab-pane">
+                <h3 class="tab-title" style="color: #666;">Atajos de Teclado</h3>
+                <div style="opacity: 0.3; pointer-events: none; position: relative;">
+                    <div style="position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%); background: #e74c3c; color: white; padding: 10px 20px; border-radius: 4px; font-weight: bold; z-index: 10; font-size: 16px;">
+                        MODULO EN DESARROLLO
+                    </div>
+                    <div class="fieldset-dark">
+                        <div class="setting-row"><label style="width: 250px;">Play / Pausa (Playlist):</label><input type="text" class="settings-input" value="P" readonly></div>
+                        <div class="setting-row"><label style="width: 250px;">Detener Todo:</label><input type="text" class="settings-input" value="S" readonly></div>
+                        <div class="setting-row"><label style="width: 250px;">Siguiente Cancion:</label><input type="text" class="settings-input" value="N" readonly></div>
+                        <div class="setting-row"><label style="width: 250px;">Marcar como Siguiente:</label><input type="text" class="settings-input" value="Q" readonly></div>
+                        <div class="setting-row"><label style="width: 250px;">Pausar al Finalizar:</label><input type="text" class="settings-input" value="F" readonly></div>
+                        <div class="setting-row"><label style="width: 250px;">Locucion de Hora:</label><input type="text" class="settings-input" value="Ctrl + H" readonly></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-footer-buttons">
+        <button id="btn-cancel" class="settings-btn" style="background-color: #444;">Cancelar</button>
+        <button id="btn-apply" class="settings-btn">Aplicar</button>
+        <button id="btn-accept" class="settings-btn" style="background-color: #27ae60;">Aceptar y Cerrar</button>
+    </div>
+
+    <script src="settings.js"></script>
+</body>
+</html>

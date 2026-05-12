@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Escucha previa</title>
+    <link rel="stylesheet" href="preview.css">
+</head>
+<body class="preview-body">
+    
+    <div class="preview-container">
+        
+        <div class="preview-header">
+            <span class="preview-icon">🎧</span>
+            <div class="preview-track-info">
+                <span id="preview-title" class="preview-title">Cargando pista...</span>
+            </div>
+        </div>
+
+        <div class="preview-timeline">
+            <span id="preview-current">00:00</span>
+            <div class="preview-progress-bg" id="preview-progress-bg" title="Haz clic para adelantar/atrasar">
+                <div class="preview-progress-fill" id="preview-progress-fill"></div>
+            </div>
+            <span id="preview-total">00:00</span>
+        </div>
+
+        <div class="preview-controls">
+            <button id="btn-preview-stop" class="preview-stop-btn" title="Detener y Cerrar">⏹</button>
+        </div>
+
+    </div>
+
+    <audio id="preview-audio" style="display: none;"></audio>
+    
+    <script src="preview.js"></script>
+</body>
+</html>

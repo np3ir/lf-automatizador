@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Consola Virtual LF</title>
+    <style>
+        body {
+            margin: 0;
+            background: #0f1114;
+            color: #d6dee6;
+            font-family: Consolas, monospace;
+            padding: 18px 20px;
+            box-sizing: border-box;
+            overflow-x: hidden;
+        }
+        * { box-sizing: border-box; }
+        h3 {
+            margin: 0 0 6px;
+            color: #00a8ff;
+            letter-spacing: 0.04em;
+        }
+        .subtitle {
+            margin: 0 0 18px;
+            font-size: 12px;
+            color: #7e8a97;
+        }
+        .console-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+            gap: 10px;
+        }
+        .diagnostics-panel {
+            margin-top: 16px;
+            border: 1px solid #28313a;
+            background: #12161b;
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .diag-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+            color: #00d2ff;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .diag-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .diag-summary-line {
+            border: 1px solid #242c34;
+            background: #0c0f13;
+            border-radius: 6px;
+            padding: 8px 9px;
+            color: #d6dee6;
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .diag-summary-line strong {
+            color: #00d2ff;
+            font-weight: bold;
+        }
+        .diag-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 10px;
+        }
+        .diag-detail-grid.is-hidden {
+            display: none;
+        }
+        .technical-controls.is-hidden {
+            display: none;
+        }
+        .diag-box {
+            border: 1px solid #242c34;
+            background: #0c0f13;
+            border-radius: 6px;
+            padding: 9px;
+            min-height: 82px;
+        }
+        .diag-title {
+            color: #7e8a97;
+            font-size: 10px;
+            margin-bottom: 7px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .diag-line {
+            color: #d6dee6;
+            font-size: 11px;
+            line-height: 1.45;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .diag-warning {
+            color: #f39c12;
+        }
+        .toolbar-mini-btn {
+            margin-right: 10px;
+            border: 1px solid #2d3a45;
+            background: #18212a;
+            color: #d6dee6;
+            border-radius: 5px;
+            padding: 5px 9px;
+            font-family: Consolas, monospace;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .toolbar-mini-btn:hover {
+            border-color: #00a8ff;
+            color: #00d2ff;
+        }
+        .toolbar-select {
+            max-width: 190px;
+            margin-right: 10px;
+            border: 1px solid #2d3a45;
+            background: #0c0f13;
+            color: #d6dee6;
+            border-radius: 5px;
+            padding: 5px 7px;
+            font-family: Consolas, monospace;
+            font-size: 11px;
+        }
+        .channel-strip {
+            text-align: center;
+            border: 1px solid #28313a;
+            padding: 8px 6px;
+            background: linear-gradient(180deg, #171a1f 0%, #111418 100%);
+            border-radius: 8px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+        }
+        .meter-pair {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 4px;
+            margin: 8px auto 10px;
+        }
+        .meter-side {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        .meter-ch {
+            font-size: 10px;
+            color: #7e8a97;
+            font-weight: bold;
+            letter-spacing: 0.08em;
+        }
+        .vu-meter-bg {
+            width: 14px;
+            height: min(188px, 26vh);
+            background: linear-gradient(to top, #27ae60 0%, #27ae60 79.5%, #f39c12 79.5%, #f39c12 89.7%, #e74c3c 89.7%, #e74c3c 100%);
+            position: relative;
+            border: 2px solid #27313a;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .vu-fill {
+            width: 100%;
+            position: absolute;
+            top: 0;
+            background: #060708;
+            transition: height 0.05s ease-out;
+        }
+        .label {
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 4px;
+            display: block;
+            color: #fff;
+        }
+        .bus-dest {
+            font-size: 9px;
+            color: #7e8a97;
+            display: block;
+            margin-top: 3px;
+            min-height: 22px;
+        }
+        .bus-value {
+            display: block;
+            margin-top: 6px;
+            font-size: 10px;
+            color: #00d2ff;
+        }
+    </style>
+</head>
+<body>
+    <h3>CONSOLA VIRTUAL DE BUSES</h3>
+    <p class="subtitle">Master, monitores, preescucha, cartwall y lineas auxiliares por playlist.</p>
+
+    <div id="console-grid" class="console-grid"></div>
+    <section class="diagnostics-panel">
+        <div class="diag-header">
+            <span id="diag-engine">Motor: webAudio</span>
+            <span>
+                <button id="btn-toggle-diagnostics" class="toolbar-mini-btn">Detalle tecnico</button>
+                <span id="diag-updated">Diagnostico en espera</span>
+            </span>
+        </div>
+        <div id="diag-summary" class="diag-summary"></div>
+        <div id="technical-controls" class="technical-controls">
+            <button id="btn-rust-probe" class="toolbar-mini-btn">Probar IPC Rust</button>
+            <button id="btn-rust-devices" class="toolbar-mini-btn">Salidas Rust</button>
+            <select id="rust-output-select" class="toolbar-select">
+                <option value="default">Rust: default</option>
+            </select>
+            <button id="btn-rust-lab-play" class="toolbar-mini-btn">Lab audio Rust</button>
+            <button id="btn-rust-preview-safe" class="toolbar-mini-btn">Preview Rust</button>
+            <button id="btn-rust-routing-map" class="toolbar-mini-btn">Test mapa Rust</button>
+            <button id="btn-rust-real-players" class="toolbar-mini-btn">Test players</button>
+            <button id="btn-client-probe" class="toolbar-mini-btn">Test cliente</button>
+            <button id="btn-contract-player" class="toolbar-mini-btn">Test contrato</button>
+            <button id="btn-rust-snapshot" class="toolbar-mini-btn">Snapshot</button>
+        </div>
+        <div id="diag-detail-grid" class="diag-grid diag-detail-grid">
+            <div class="diag-box">
+                <div class="diag-title">Players activos</div>
+                <div id="diag-players"></div>
+            </div>
+            <div class="diag-box">
+                <div class="diag-title">Mezcla A/B</div>
+                <div id="diag-mix"></div>
+            </div>
+            <div class="diag-box">
+                <div class="diag-title">FX</div>
+                <div id="diag-overlays"></div>
+            </div>
+            <div class="diag-box">
+                <div class="diag-title">Rutas / dispositivos</div>
+                <div id="diag-routes"></div>
+            </div>
+            <div class="diag-box">
+                <div class="diag-title">Latencia / avisos</div>
+                <div id="diag-latency"></div>
+            </div>
+            <div class="diag-box">
+                <div class="diag-title">Reporte RustAudio</div>
+                <div id="diag-report"></div>
+            </div>
+            <div class="diag-box">
+                <div class="diag-title">Buses Rust</div>
+                <div id="diag-rust-buses"></div>
+            </div>
+        </div>
+    </section>
+
+    <script src="consola.js"></script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Botonera de efectos flotante</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+      body { background-color: #1a1a1c; overflow: hidden; display: flex; flex-direction: column; height: 100vh; margin: 0; }
+      .cw-floating-header { display: flex; justify-content: space-between; align-items: center; background: #222225; border-bottom: 1px solid #333; padding: 8px 15px; font-weight: bold; color: #00a8ff; -webkit-app-region: drag; }
+      .cw-floating-header button { -webkit-app-region: no-drag; }
+      .cw-floating-header span { margin-right: auto; }
+      .grid-wrapper { flex: 1; min-height: 0; padding: 10px; overflow: hidden; box-sizing: border-box; background: #111; }
+      .cw-grid-container { display: grid; gap: 5px; height: 100%; padding: 0; box-sizing: border-box; overflow: hidden; }
+  </style>
+</head>
+<body>
+
+  <div class="cw-floating-header">
+      <span>🎛️ Botonera de efectos</span>
+      <button id="cw-profile-button" class="cw-profile-button" title="Perfiles">👤 Principal</button>
+      <button id="btn-dock-cartwall" class="toolbar-btn" title="Acoplar a la pantalla principal">&#x23CF;&#xFE0F;</button>
+  </div>
+
+  <div class="cw-tabs-container" id="cw-tabs"></div>
+  
+  <div class="grid-wrapper">
+      <div id="cw-grid" class="cw-grid-container"></div>
+  </div>
+
+  <div id="cw-edit-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="width: 320px;">
+      <div class="modal-header">
+          <h3 style="color: #00a8ff; margin: 0;">Editar Efecto</h3>
+          
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+        <label style="font-size: 12px; color:#aaa;">Ruta del archivo:</label>
+        <div style="display: flex; gap: 5px;">
+            <input type="text" id="cw-edit-filepath" class="settings-input" style="flex:1;" readonly>
+            <select id="cw-edit-type" class="dark-select" title="Tipo de efecto" style="width: 30px; padding: 4px;">
+                <option value="audio">Audio</option>
+                <option value="time">Locución de hora</option>
+                <option value="temperature" disabled>Temperatura (próximamente)</option>
+                <option value="humidity" disabled>Humedad (próximamente)</option>
+            </select>
+            <button id="btn-select-file" class="settings-btn">...</button>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Nombre:</label><input type="text" id="cw-edit-name" class="settings-input" style="width: 100%; box-sizing: border-box;"></div>
+            <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Volumen:</label><input type="range" id="cw-edit-volume" min="0" max="1" step="0.01" value="1" style="width: 100%;"></div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color de fondo:</label><input type="color" id="cw-edit-bg-color" class="color-picker-native" value="#444444"></div>
+            <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color de texto:</label><input type="color" id="cw-edit-text-color" class="color-picker-native" value="#FFFFFF"></div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid #333;">
+          <button id="btn-cancel-cw-edit" class="settings-btn" style="background: #444;">Cancelar</button>
+          <button id="btn-save-cw-edit" class="settings-btn" style="background: #27ae60;">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cw-tab-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="width: 320px;">
+      <div class="modal-header">
+          <h3 id="cw-tab-modal-title" style="color: #00a8ff; margin: 0;">Configurar Botonera</h3>
+          
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+        <label style="font-size: 12px; color:#aaa;">Nombre de la botonera:</label>
+        <input type="text" id="cw-tab-name" class="settings-input">
+        <div style="display: flex; gap: 10px;">
+            <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Vertical (Filas):</label><input type="number" id="cw-tab-v" class="settings-input" min="1" max="20" value="5" style="width: 100%; box-sizing: border-box;"></div>
+            <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Horizontal (Col):</label><input type="number" id="cw-tab-h" class="settings-input" min="1" max="20" value="5" style="width: 100%; box-sizing: border-box;"></div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color Fondo:</label><input type="color" id="cw-tab-bg-color" class="color-picker-native" value="#3a3f44"></div>
+            <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color Texto:</label><input type="color" id="cw-tab-text-color" class="color-picker-native" value="#cccccc"></div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid #333;">
+            <button id="btn-cancel-cw-tab" class="settings-btn" style="background: #c0392b;">Cancelar</button>
+            <button id="btn-save-cw-tab" class="settings-btn" style="background: #27ae60;">Aceptar</button>
+        </div>
+    </div>
+  </div>
+
+  <div id="cw-context-menu" class="context-menu" style="display: none;">
+    <div class="context-item" id="menu-editar">✏️ Editar...</div>
+    <div class="context-item" id="menu-limpiar">🗑️ Limpiar</div>
+    <div class="context-separator"></div>
+    <div class="context-item" id="menu-bucle"><span id="check-bucle" style="display:inline-block; width:15px; color:#2ecc71;"></span> 🔁 Bucle</div>
+    <div class="context-item" id="menu-overlap"><span id="check-overlap" style="display:inline-block; width:15px; color:#2ecc71;"></span> 🔀 Superposición</div>
+    <div class="context-item" id="menu-restart"><span id="check-restart" style="display:inline-block; width:15px; color:#2ecc71;"></span> ↺ Reiniciar al hacer clic</div>
+    <div class="context-item" id="menu-detener"><span id="check-detener" style="display:inline-block; width:15px; color:#2ecc71;"></span> ⏹ Detener otros</div>
+    <div class="context-separator"></div>
+    <div class="context-item" id="menu-previa">🎧 Escucha previa</div>
+  </div>
+
+  <div id="cw-tab-context-menu" class="context-menu" style="display: none;">
+    <div class="context-item" id="tab-menu-editar">✏️ Editar Botonera...</div>
+    <div class="context-separator"></div>
+    <div class="context-item" id="tab-menu-eliminar" style="color: #e74c3c;">❌ Eliminar Botonera</div>
+  </div>
+    <div id="cw-profile-modal" class="modal-overlay" style="display: none; z-index: 3000;">
+        <div class="modal-content" style="width: 320px;">
+            <div class="modal-header" style="display: flex; justify-content: space-between;"><h3 id="cw-profile-modal-title" style="margin: 0; color:#00a8ff;">Nuevo Perfil</h3></div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                <label style="font-size: 12px; color:#aaa;">Nombre del Perfil:</label>
+                <input type="text" id="cw-profile-name" class="settings-input">
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex:1;"><label style="font-size: 12px; color:#aaa;">Color Texto:</label><input type="color" id="cw-profile-text-color" class="color-picker-native" value="#ffffff"></div>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid #333;">
+                <button id="btn-cancel-cw-profile" class="settings-btn" style="background: #c0392b;">Cancelar</button>
+                <button id="btn-save-cw-profile" class="settings-btn" style="background: #27ae60;">Guardar Perfil</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="cw-profile-menu" class="context-menu" style="display: none;"></div>
+
+  <script src="cartwall.js"></script>
+</body>
+</html>

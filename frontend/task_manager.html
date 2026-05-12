@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Administrador de tareas LF</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #101216;
+            color: #d9e2ec;
+            font-family: Segoe UI, Arial, sans-serif;
+            font-size: 13px;
+        }
+        header {
+            padding: 14px 16px 10px;
+            border-bottom: 1px solid #252d36;
+            background: #171a20;
+        }
+        h2 {
+            margin: 0;
+            color: #00a8ff;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .sub {
+            margin-top: 4px;
+            color: #8795a3;
+            font-size: 12px;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            padding: 12px 16px;
+            background: #12161b;
+            border-bottom: 1px solid #252d36;
+        }
+        .metric {
+            border: 1px solid #27313b;
+            background: #181d23;
+            padding: 9px 10px;
+            border-radius: 6px;
+        }
+        .metric span {
+            display: block;
+            color: #8795a3;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+        .metric strong {
+            display: block;
+            margin-top: 4px;
+            font-size: 18px;
+            color: #fff;
+        }
+        main { padding: 12px 16px 16px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 14px;
+            background: #15191f;
+            border: 1px solid #27313b;
+        }
+        th, td {
+            padding: 8px 9px;
+            border-bottom: 1px solid #242c35;
+            text-align: left;
+            white-space: nowrap;
+        }
+        th {
+            color: #9fb0c0;
+            background: #1b2027;
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+        td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        tr:last-child td { border-bottom: 0; }
+        .section-title {
+            margin: 12px 0 7px;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .active { color: #2ecc71; font-weight: 700; }
+        .idle { color: #8795a3; }
+    </style>
+</head>
+<body>
+    <header>
+        <h2>Administrador de tareas LF</h2>
+        <div class="sub">Vista de diagnostico. Solo lectura, se cierra al perder foco.</div>
+    </header>
+    <section class="summary">
+        <div class="metric"><span>CPU App real</span><strong id="total-cpu">0.0%</strong></div>
+        <div class="metric"><span>RAM App real</span><strong id="total-memory">0 MB</strong></div>
+        <div class="metric"><span>Pico RAM sesion</span><strong id="peak-memory">0 MB</strong></div>
+        <div class="metric"><span>Disco</span><strong id="disk-status">N/D</strong></div>
+    </section>
+    <main>
+        <div class="section-title">Procesos Electron</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>PID</th>
+                    <th>Tipo</th>
+                    <th>Ventana</th>
+                    <th>CPU</th>
+                    <th>RAM</th>
+                    <th>Privada</th>
+                    <th>Disco</th>
+                </tr>
+            </thead>
+            <tbody id="process-body"></tbody>
+        </table>
+
+        <div class="section-title">Trabajos dedicados</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Trabajo</th>
+                    <th>Estado</th>
+                    <th>Detalle</th>
+                </tr>
+            </thead>
+            <tbody id="worker-body"></tbody>
+        </table>
+    </main>
+    <script src="task_manager.js"></script>
+</body>
+</html>

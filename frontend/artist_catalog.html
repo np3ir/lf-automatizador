@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Biblioteca de Cédulas - LF Automatizador</title>
+    <style>
+        :root { --bg:#121212; --panel:#18181a; --header:#1a1a1c; --border:#333; --accent:#00a8ff; --text:#e0e0e0; --muted:#888; --active:#2ecc71; --danger:#e74c3c; --warning:#f39c12; }
+        * { box-sizing:border-box; margin:0; padding:0; font-family:"Segoe UI",sans-serif; }
+        * { scrollbar-width:thin; scrollbar-color:#5a5f68 #141416; }
+        *::-webkit-scrollbar { width:10px; height:10px; }
+        *::-webkit-scrollbar-track { background:#141416; }
+        *::-webkit-scrollbar-thumb { background:#4a4f58; border:2px solid #141416; border-radius:10px; }
+        *::-webkit-scrollbar-thumb:hover { background:#6a707a; }
+        *::selection { background:rgba(0,168,255,.24); color:#fff; }
+        body { background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+        button, input { font:inherit; }
+        .header { background:var(--header); padding:12px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; gap:14px; z-index:10; }
+        .logo-section { display:flex; align-items:center; gap:12px; min-width:230px; }
+        .logo-mark { width:26px; height:26px; border:1px solid var(--accent); color:var(--accent); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:900; }
+        .logo-text { font-size:18px; font-weight:900; letter-spacing:1px; color:var(--accent); }
+        .search-bar { flex:1; max-width:560px; position:relative; }
+        .search-bar input { width:100%; background:#000; border:1px solid var(--border); border-radius:20px; padding:9px 15px 9px 40px; color:#fff; outline:none; }
+        .search-bar::before { content:"⌕"; position:absolute; left:16px; top:5px; font-size:20px; opacity:.55; }
+        .header-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+        .btn { border:1px solid var(--border); background:#222; color:#fff; padding:8px 13px; border-radius:20px; font-weight:800; font-size:12px; cursor:pointer; }
+        .btn:hover { border-color:var(--accent); color:var(--accent); }
+        .btn-primary { background:var(--accent); color:#000; border-color:var(--accent); }
+        .btn[disabled] { opacity:.45; cursor:not-allowed; }
+        .btn-danger { color:#ffb8b0; border-color:#7d332c; }
+        .btn-ghost { background:#151515; }
+        .sort-select { background:#0a0a0a; border:1px solid var(--border); border-radius:20px; color:#fff; padding:8px 12px; font-size:12px; font-weight:800; outline:none; max-width:160px; }
+        .main-layout { display:flex; flex:1; min-height:0; overflow:hidden; }
+        .sidebar { width:250px; background:var(--panel); border-right:1px solid var(--border); padding:20px; display:flex; flex-direction:column; gap:20px; overflow:auto; }
+        .filter-group { display:flex; flex-direction:column; gap:8px; }
+        .filter-label { font-size:10px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+        .filter-item { padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px; transition:.2s; display:flex; justify-content:space-between; align-items:center; border:1px solid transparent; }
+        .filter-item:hover { background:#222; color:var(--accent); }
+        .filter-item.active { background:rgba(0,168,255,.1); color:var(--accent); font-weight:800; border-color:rgba(0,168,255,.18); }
+        .count { font-size:10px; background:#000; padding:2px 6px; border-radius:10px; color:var(--muted); }
+        .gallery-content { flex:1; padding:18px 22px 24px; overflow-y:auto; background:linear-gradient(180deg,#121212 0%,#0a0a0a 100%); }
+        .section-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:14px; }
+        .section-header h2 { font-size:22px; font-weight:900; }
+        .selection-info { font-size:12px; color:var(--muted); display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+        .quick-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; background:#17191d; border:1px solid #30343b; border-radius:8px; padding:10px 12px; margin-bottom:16px; }
+        .quick-actions strong { color:#fff; font-size:13px; }
+        .quick-actions .hint { color:var(--muted); font-size:12px; }
+        .quick-actions-buttons { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+        .bulk-status { color:var(--accent); max-width:460px; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .artist-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:22px; }
+        .artist-grid.list-mode { display:flex; flex-direction:column; gap:8px; }
+        .artist-card { background:#1a1a1c; border:1px solid var(--border); border-radius:8px; overflow:hidden; cursor:pointer; transition:border-color .16s, box-shadow .16s, transform .16s; position:relative; content-visibility:auto; contain-intrinsic-size:260px 260px; user-select:none; }
+        .artist-card:hover { transform:translateY(-4px); border-color:var(--accent); box-shadow:0 10px 30px rgba(0,0,0,.5); }
+        .artist-grid.list-mode .artist-card { display:grid; grid-template-columns:72px 1fr 120px 110px; align-items:center; min-height:72px; border-radius:6px; }
+        .artist-grid.list-mode .artist-card:hover { transform:none; }
+        .artist-card.selected { outline:none; border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent), 0 0 0 1px rgba(0,168,255,.15); background:#17202a; }
+        .artist-card.selected .card-photo img { opacity:.9; filter:none; }
+        .card-photo { width:100%; aspect-ratio:1; background:#000; overflow:hidden; position:relative; display:flex; align-items:center; justify-content:center; text-align:center; }
+        .artist-grid.list-mode .card-photo { width:72px; height:72px; aspect-ratio:auto; grid-column:1; grid-row:1; }
+        .card-photo img { width:100%; height:100%; object-fit:cover; opacity:.72; transition:.25s; }
+        .artist-card:hover .card-photo img { opacity:1; transform:scale(1.04); }
+        .photo-fallback { padding:18px; color:#fff; font-size:23px; font-weight:900; line-height:1.05; }
+        .card-info { padding:15px; position:relative; background:linear-gradient(0deg,#1a1a1c 0%,rgba(26,26,28,.82) 100%); }
+        .artist-grid.list-mode .card-info { background:transparent; grid-column:2; grid-row:1; min-width:0; }
+        .card-name { font-size:15px; font-weight:800; color:#fff; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .card-meta { font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:2px; min-height:30px; }
+        .genre-pill { position:absolute; top:10px; right:10px; font-size:9px; font-weight:900; background:rgba(0,0,0,.82); color:var(--accent); padding:3px 8px; border-radius:20px; text-transform:uppercase; border:1px solid var(--accent); backdrop-filter:blur(5px); max-width:120px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+        .artist-grid.list-mode .genre-pill { position:static; justify-self:start; max-width:110px; grid-column:3; grid-row:1; }
+        .status-curated { position:absolute; top:10px; left:10px; font-size:11px; font-weight:900; background:rgba(0,0,0,.72); border-radius:12px; min-width:26px; height:22px; padding:0 7px; display:flex; align-items:center; justify-content:center; border:1px solid var(--active); color:var(--active); }
+        .artist-grid.list-mode .status-curated { position:static; justify-self:center; grid-column:4; grid-row:1; }
+        .status-pending { border-color:var(--warning); color:var(--warning); }
+        .card-actions { display:flex; gap:8px; padding:0 15px 14px; background:#1a1a1c; }
+        .card-open { flex:1; border:1px solid #38404a; background:#11161c; color:#dce8f2; border-radius:5px; padding:7px 9px; font-size:11px; font-weight:900; cursor:pointer; }
+        .card-open:hover { border-color:var(--accent); color:var(--accent); }
+        .artist-grid.list-mode .card-actions { padding:0 10px 0 0; grid-column:5; grid-row:1; background:transparent; }
+        .artist-grid.list-mode .artist-card { grid-template-columns:72px 1fr 120px 90px 92px; }
+        .empty { color:var(--muted); border:1px dashed var(--border); padding:28px; border-radius:8px; }
+        .context-menu { position:fixed; display:none; min-width:250px; background:#17191d; border:1px solid #3a3d43; border-radius:6px; box-shadow:0 14px 45px rgba(0,0,0,.5); z-index:30; padding:6px; }
+        .context-menu.show { display:block; }
+        .context-item { padding:9px 10px; border-radius:4px; font-size:12px; font-weight:800; cursor:pointer; color:#e0e0e0; }
+        .context-item:hover { background:#232831; color:#fff; }
+        .context-item.danger { color:#ffb8b0; }
+        .context-separator { height:1px; background:#30333a; margin:5px 0; }
+        .modal-backdrop { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.68); z-index:40; }
+        .modal-backdrop.show { display:flex; }
+        .modal-card { width:min(520px, calc(100vw - 32px)); background:#17191d; border:1px solid #3a3d43; border-radius:8px; padding:18px; box-shadow:0 18px 60px rgba(0,0,0,.5); }
+        .modal-title { font-size:18px; font-weight:900; margin-bottom:6px; }
+        .modal-summary { color:var(--muted); font-size:12px; line-height:1.5; margin-bottom:14px; }
+        .modal-card label { display:block; font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:900; margin:12px 0 6px; }
+        .modal-card input, .modal-card select { width:100%; background:#0a0a0a; color:#fff; border:1px solid var(--border); border-radius:5px; padding:9px; outline:none; }
+        .modal-actions { margin-top:16px; display:flex; justify-content:flex-end; gap:10px; }
+        @media (max-width: 920px) {
+            .header { align-items:stretch; flex-direction:column; }
+            .search-bar { max-width:none; width:100%; }
+            .main-layout { flex-direction:column; }
+            .sidebar { width:auto; max-height:190px; border-right:0; border-bottom:1px solid var(--border); }
+            .quick-actions { align-items:flex-start; flex-direction:column; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo-section">
+            <span class="logo-mark">C</span>
+            <div class="logo-text">BIBLIOTECA DE CEDULAS</div>
+        </div>
+        <div class="search-bar">
+            <input id="search-input" type="text" placeholder="Buscar por artista, genero, nacionalidad o etiquetas...">
+        </div>
+        <div class="header-actions">
+            <button class="btn" id="btn-refresh">Actualizar</button>
+            <button class="btn" id="btn-autofill">Auto-completar</button>
+            <select class="sort-select" id="sort-mode" title="Ordenar catalogo">
+                <option value="name">Orden: nombre</option>
+                <option value="tracks">Orden: mas canciones</option>
+                <option value="pending">Orden: pendientes</option>
+                <option value="genre">Orden: genero</option>
+            </select>
+            <button class="btn" id="btn-view-toggle">Vista lista</button>
+            <button class="btn btn-primary" id="btn-new">+ Nuevo Artista</button>
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <aside class="sidebar">
+            <div class="filter-group">
+                <span class="filter-label">Filtros de Genero</span>
+                <div id="genre-filters"></div>
+            </div>
+            <div class="filter-group">
+                <span class="filter-label">Estado de Curaduria</span>
+                <div id="status-filters"></div>
+            </div>
+            <div class="filter-group" style="margin-top:auto;">
+                <div class="filter-item" id="btn-init-curation">Ajustes de Indexacion</div>
+            </div>
+        </aside>
+
+        <main class="gallery-content" id="gallery-content">
+            <div class="section-header">
+                <h2 id="section-title">Artistas Curados</h2>
+                <div class="selection-info">
+                    <span id="selection-info">0 seleccionados</span>
+                    <span class="bulk-status" id="bulk-status"></span>
+                </div>
+            </div>
+            <div class="quick-actions" id="quick-actions">
+                <div>
+                    <strong id="quick-title">Gestion rapida</strong>
+                    <div class="hint" id="quick-hint">Clic selecciona. Doble clic o Abrir edita la cedula.</div>
+                </div>
+                <div class="quick-actions-buttons">
+                    <button class="btn btn-primary" id="btn-open-selected" disabled>Abrir seleccionado</button>
+                    <button class="btn" id="btn-merge-selected" disabled>Unificar</button>
+                    <button class="btn" id="btn-clear-selection" disabled>Limpiar seleccion</button>
+                </div>
+            </div>
+            <div class="artist-grid" id="artist-grid"></div>
+        </main>
+    </div>
+    <div class="context-menu" id="artist-context-menu">
+        <div class="context-item" id="ctx-open">Abrir cedula</div>
+        <div class="context-item" id="ctx-merge">Unificar artistas</div>
+        <div class="context-item" id="ctx-set-main-genre">Usar filtro como genero principal</div>
+        <div class="context-separator"></div>
+        <div class="context-item danger" id="ctx-delete">Eliminar cedulas</div>
+    </div>
+    <div class="modal-backdrop" id="merge-modal">
+        <div class="modal-card">
+            <div class="modal-title">Unificar artistas</div>
+            <div class="modal-summary" id="merge-summary">Selecciona que artista queda como ficha principal.</div>
+            <label for="merge-target">Ficha principal</label>
+            <select id="merge-target"></select>
+            <label for="merge-name">Nombre a conservar</label>
+            <input id="merge-name" type="text" autocomplete="off">
+            <div class="modal-actions">
+                <button class="btn" id="btn-cancel-merge">Cancelar</button>
+                <button class="btn btn-primary" id="btn-confirm-merge">Unificar</button>
+            </div>
+        </div>
+    </div>
+    <script src="artist_catalog.js"></script>
+</body>
+</html>

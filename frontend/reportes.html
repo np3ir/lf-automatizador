@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Centro de Estado e Incidencias</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="reports-window-body">
+    <div class="reports-shell">
+        <div class="reports-header">
+            <div>
+                <div class="reports-title">Centro de Estado e Incidencias</div>
+                <div class="reports-subtitle">Vista completa del aire, eventos, encoder, sesión y acciones automáticas.</div>
+            </div>
+            <button class="mini-btn" id="btn-refresh-reports">Actualizar</button>
+        </div>
+
+        <div class="system-log reports-panel">
+            <div class="log-header">
+                <span>Monitoreo en Tiempo Real</span>
+                <span class="incident-counter" id="incident-auto-count">AUTO 0</span>
+            </div>
+            <div class="incident-status-bar">
+                <div class="incident-status-card" id="status-air">
+                    <span class="incident-status-label">Aire</span>
+                    <span class="incident-status-value">Detenido</span>
+                </div>
+                <div class="incident-status-card" id="status-events">
+                    <span class="incident-status-label">Eventos</span>
+                    <span class="incident-status-value">Activos</span>
+                </div>
+                <div class="incident-status-card" id="status-encoder">
+                    <span class="incident-status-label">Encoder</span>
+                    <span class="incident-status-value">Desconectado</span>
+                </div>
+                <div class="incident-status-card" id="status-session">
+                    <span class="incident-status-label">Sesion</span>
+                    <span class="incident-status-value">Nueva</span>
+                </div>
+            </div>
+            <div class="reports-event-watch">
+                <div class="events-ops-header">
+                    <span>Guardia eventos</span>
+                    <span id="reports-events-summary">Sin eventos proximos</span>
+                </div>
+                <div id="reports-events-timeline" class="events-timeline reports-events-timeline"></div>
+            </div>
+            <div class="incident-last-action" id="incident-last-action">Ultima autoaccion: ninguna</div>
+            <div class="incident-filters">
+                <button class="incident-filter active" data-filter="all">Todos</button>
+                <button class="incident-filter" data-filter="air">Aire</button>
+                <button class="incident-filter" data-filter="guard">Guardia</button>
+                <button class="incident-filter" data-filter="audio">Audio</button>
+                <button class="incident-filter" data-filter="events">Eventos</button>
+                <button class="incident-filter" data-filter="encoder">Encoder</button>
+                <button class="incident-filter" data-filter="session">Sesion</button>
+                <button class="incident-filter" data-filter="system">Sistema</button>
+            </div>
+            <div class="log-messages reports-log" id="sys-log"></div>
+        </div>
+    </div>
+
+    <script src="reportes.js"></script>
+</body>
+</html>

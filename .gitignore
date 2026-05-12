@@ -1,0 +1,31 @@
+# Dependencies and generated build output
+node_modules/
+audio-engine-rust/target/
+
+# Local backups and prototypes
+000 Resplando (no tocar)/
+Prototipo/
+scratch/
+scratch_*.js
+
+# Runtime reports, logs and local caches
+config/audio_engine_report.jsonl
+ERROR_ANALYZER_LOG.txt
+*.log
+track_cache.json
+
+# Local editor and OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Bases de datos locales y configuraciones de la radio
+config/*.sqlite
+config/*.sqlite-*
+config/*.json
+!config/*.example.json
+config/*.txt
+events_db.json
+event_groups.json
+explicit_types.json
+manual_cues.json

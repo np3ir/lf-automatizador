@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestor de Comerciales</title>
+    <style>
+        :root { --bg:#121212; --panel:#18181a; --header:#1a1a1c; --line:#333; --soft:#222; --accent:#00a8ff; --txt:#e0e0e0; --muted:#888; --ok:#2ecc71; --warn:#f1c40f; --bad:#e74c3c; --purple:#9b59b6; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { height: 100vh; overflow: hidden; user-select: none; background: var(--bg); color: var(--txt); font-family: 'Segoe UI', Tahoma, sans-serif; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: #3a3a3d; border-radius: 4px; }
+        button { background: #2a2a2d; color: #fff; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+        button:hover, button.active { background: var(--accent); border-color: var(--accent); color: #06131b; }
+        button.danger { background: #4a1915; border-color: #c0392b; color: #ff8c86; }
+        button.success { background: #1e6c31; border-color: #1e6c31; }
+        input, select, textarea { width: 100%; min-width: 0; background: #1e1e1e; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 7px 8px; outline: none; font: 12px 'Segoe UI', Tahoma, sans-serif; }
+        textarea { min-height: 54px; resize: vertical; }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent); background: #111; }
+        label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th { position: sticky; top: 0; z-index: 1; background: #111; color: #aaa; font-size: 11px; text-align: left; text-transform: uppercase; padding: 8px; border-bottom: 1px solid var(--line); }
+        td { padding: 7px 8px; border-bottom: 1px solid #1a1a1c; color: #bbb; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        tr:hover td, tr.selected td { background: rgba(0,168,255,0.11); color: #fff; }
+        .shell { height: 100vh; display: flex; flex-direction: column; }
+        .topbar { height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; background: var(--header); border-bottom: 1px solid var(--line); }
+        .title { color: var(--accent); font-weight: 800; font-size: 16px; min-width: 190px; }
+        .tabs { display: flex; gap: 6px; }
+        .actions { display: flex; gap: 8px; align-items: center; }
+        .view { flex: 1; min-height: 0; display: none; }
+        .view.active { display: flex; }
+        .panel-title { padding: 10px 12px; font-size: 11px; color: var(--muted); font-weight: 800; background: #111; border-bottom: 1px solid #222; text-transform: uppercase; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+        .left { width: 270px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+        .center { flex: 1; min-width: 0; background: var(--bg); display: flex; flex-direction: column; }
+        .right { width: 350px; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+        .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px; background: var(--header); border-bottom: 1px solid var(--line); }
+        .scroll { flex: 1; min-height: 0; overflow: auto; }
+        .stack { padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+        .route-card, .smart-card, .spot-card, .box { background: #1e1e1e; border: 1px solid #333; border-radius: 5px; }
+        .route-card { padding: 9px; display: flex; flex-direction: column; gap: 6px; }
+        .route-card strong { font-size: 12px; color: #fff; }
+        .route-path { color: #777; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .route-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .smart-card { padding: 9px; color: var(--warn); border-style: dashed; border-color: var(--warn); font-size: 11px; cursor: pointer; }
+        .spot-card { padding: 9px; display: flex; flex-direction: column; gap: 5px; cursor: grab; border-left: 3px solid #555; }
+        .spot-card:hover { border-color: #555; background: #252525; }
+        .spot-card.pag { border-left-color: var(--ok); }
+        .spot-card.pro { border-left-color: var(--accent); }
+        .spot-card.gob { border-left-color: var(--bad); }
+        .spot-card.id { border-left-color: var(--purple); }
+        .spot-head { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; font-weight: 800; }
+        .spot-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; }
+        .badge { font-size: 9px; font-weight: 800; padding: 2px 5px; border-radius: 3px; background: #222; }
+        .badge.pag { color: var(--ok); background: rgba(46,204,113,0.15); }
+        .badge.pro { color: var(--accent); background: rgba(0,168,255,0.15); }
+        .badge.gob { color: var(--bad); background: rgba(231,76,60,0.15); }
+        .badge.id { color: var(--purple); background: rgba(155,89,182,0.15); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .ok { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+        .warn { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
+        .bad { background: var(--bad); box-shadow: 0 0 5px var(--bad); }
+        .form { padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; overflow: auto; }
+        .full { grid-column: span 2; }
+        .type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .type-btn { background: #222; border: 1px solid #444; color: #aaa; text-align: center; padding: 7px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; cursor: pointer; }
+        .type-btn.active { background: #005f99; border-color: var(--accent); color: #fff; }
+        .mini-player { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+        .wave { height: 30px; background: repeating-linear-gradient(90deg, #333, #333 2px, #111 2px, #111 5px); border-radius: 2px; position: relative; overflow: hidden; }
+        .wave::after { content: ""; position: absolute; left: 32%; top: 0; bottom: 0; width: 2px; background: var(--bad); }
+        .footer { padding: 10px; background: #111; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; }
+        .mode-toggle { display: flex; align-items: center; gap: 10px; background: #111; border: 1px solid #333; border-radius: 20px; padding: 5px 12px; }
+        .mode-label { color: #666; font-size: 12px; font-weight: 800; }
+        .mode-label.active { color: #fff; }
+        .switch { position: relative; width: 44px; height: 22px; }
+        .switch input { display: none; }
+        .slider { position: absolute; inset: 0; background: #333; border: 1px solid #555; border-radius: 20px; cursor: pointer; }
+        .slider::before { content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+        .switch input:checked + .slider { background: var(--accent); border-color: var(--accent); }
+        .switch input:checked + .slider::before { transform: translateX(22px); }
+        .subview { flex: 1; min-height: 0; display: none; flex-direction: column; }
+        .subview.active { display: flex; }
+        .drop-hint { margin: 18px; border: 2px dashed #444; border-radius: 8px; padding: 28px; color: #666; text-align: center; font-weight: 800; }
+        .grid-head, .grid { display: grid; grid-template-columns: 76px repeat(4, 1fr); }
+        .grid-head { background: #111; border-bottom: 1px solid var(--line); }
+        .grid-head div { padding: 9px; color: var(--muted); text-align: center; font-size: 11px; font-weight: 800; }
+        .grid { flex: 1; overflow-y: auto; gap: 1px; background: #252525; }
+        .time-cell, .slot-cell { min-height: 72px; background: #1a1a1c; padding: 6px; }
+        .time-cell { color: var(--accent); font-weight: 800; display: flex; align-items: center; justify-content: center; }
+        .slot-cell { cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
+        .slot-cell:hover, .slot-cell.selected { background: #222; box-shadow: inset 0 0 0 1px var(--accent); }
+        .micro { background: #111; border: 1px solid #333; border-left: 2px solid var(--accent); border-radius: 3px; padding: 3px 5px; font-size: 10px; display: flex; justify-content: space-between; gap: 6px; overflow: hidden; }
+        .block-list { padding: 10px; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+        .tanda-item { background: #1a1a1c; border: 1px dashed #444; border-left: 3px solid var(--accent); padding: 9px; border-radius: 4px; display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; cursor: pointer; }
+        .tanda-item.fixed { border-style: solid; border-left-color: #777; }
+        .tanda-title { font-size: 12px; font-weight: 800; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tanda-meta { grid-column: 1 / 3; color: #777; font-size: 10px; }
+        .progress { height: 12px; background: #222; border-radius: 7px; overflow: hidden; }
+        .progress > div { height: 100%; background: var(--ok); width: 0%; }
+        .floating { position: absolute; right: 18px; bottom: 40px; width: 320px; background: #111; border: 1px solid #444; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.75); display: none; overflow: hidden; }
+        .view-continuity.active .floating { display: block; }
+        .float-head, .float-foot { padding: 8px 11px; background: #18181a; color: #aaa; font-size: 10px; display: flex; justify-content: space-between; border-bottom: 1px solid #333; }
+        .float-foot { border-top: 1px solid #333; border-bottom: 0; }
+        .float-body { padding: 13px; display: flex; flex-direction: column; gap: 8px; }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <header class="topbar">
+        <div class="title">Gestor de Pautas</div>
+        <nav class="tabs">
+            <button class="nav-tab active" data-view="library">Biblioteca</button>
+            <button class="nav-tab" data-view="scheduler">Editor de pautas</button>
+            <button class="nav-tab" data-view="continuity">Continuidad</button>
+        </nav>
+        <div class="actions">
+            <input id="global-search" type="text" placeholder="Buscar spot, cliente, campana o ruta..." style="width:300px;">
+            <button id="btn-refresh">Refrescar</button>
+        </div>
+    </header>
+
+    <main id="view-library" class="view active">
+        <aside class="left">
+            <div class="panel-title">Carpetas monitorizadas</div>
+            <div class="stack">
+                <div class="route-card">
+                    <strong>Comerciales</strong>
+                    <div id="commercials-root-path" class="route-path">Sin carpeta configurada</div>
+                    <div class="route-actions"><button id="btn-set-commercials-root">Elegir</button><button id="btn-scan-commercials">Escanear</button></div>
+                </div>
+                <div class="route-card">
+                    <strong>Jingles e IDs</strong>
+                    <div id="jingles-root-path" class="route-path">Sin carpeta configurada</div>
+                    <div class="route-actions"><button id="btn-set-jingles-root">Elegir</button><button id="btn-scan-jingles">Escanear</button></div>
+                </div>
+                <div>
+                    <label>Categoria al importar</label>
+                    <select id="import-category"></select>
+                </div>
+                <button id="btn-new-category">Nueva categoria</button>
+            </div>
+        </aside>
+        <section id="asset-dropzone" class="center">
+            <div class="toolbar">
+                <select id="filter-root" style="width:150px;"><option value="all">Todo</option><option value="commercials">Comerciales</option><option value="jingles">Jingles</option></select>
+                <select id="filter-category" style="width:180px;"><option value="all">Todas</option></select>
+                <select id="filter-status" style="width:150px;"><option value="all">Todos</option><option value="draft">Sin metadata</option><option value="active">Vigentes</option><option value="upcoming">Proximos</option><option value="expired">Vencidos</option></select>
+                <button id="btn-apply-category">Etiquetar seleccionados</button>
+            </div>
+            <div class="scroll">
+                <table>
+                    <thead><tr><th style="width:34px;">ST</th><th>Archivo</th><th>Cliente / Marca</th><th style="width:120px;">Tipo</th><th style="width:150px;">Vigencia</th><th style="width:110px;">Cues / dB</th></tr></thead>
+                    <tbody id="asset-body"></tbody>
+                </table>
+                <div id="empty-assets" class="drop-hint">Arrastra carpetas o escanea las raices maestras para construir la biblioteca comercial.</div>
+            </div>
+        </section>
+        <aside class="right">
+            <div class="panel-title">Inspector de spot <span id="asset-state-label">Sin seleccion</span></div>
+            <div class="mini-player">
+                <div id="asset-file-label" style="font-size:11px;color:var(--accent);word-break:break-all;">Selecciona un archivo</div>
+                <div class="wave"></div>
+                <div style="display:flex;justify-content:space-between;align-items:center;"><button id="btn-preview-asset">Play</button><span id="asset-audio-info" style="font-size:11px;color:#888;">Dur: -- | dB: --</span></div>
+            </div>
+            <div class="form">
+                <div class="full">
+                    <label>Tipo de elemento</label>
+                    <div id="type-buttons" class="type-grid"></div>
+                </div>
+                <div class="full"><label>Cliente / Marca</label><input id="asset-client" type="text"></div>
+                <div class="full"><label>Campana / Pieza</label><input id="asset-campaign" type="text"></div>
+                <div><label id="asset-category-label">Categoria / motivo</label><select id="asset-category"></select></div>
+                <div><label id="asset-billing-label">Condicion de emision</label><select id="asset-billing"></select></div>
+                <div><label>Valido desde</label><input id="asset-validity-start" type="date"></div>
+                <div><label>Valido hasta</label><input id="asset-validity-end" type="date"></div>
+                <div><label>Prioridad</label><select id="asset-priority"><option value="high">Alta estricta</option><option value="normal">Normal</option><option value="low">Baja relleno</option></select></div>
+                <div><label>Limite diario</label><input id="asset-daily-limit" type="number" min="0" placeholder="0 = sin limite"></div>
+                <div class="full"><label>Como debe salir al aire</label><textarea id="asset-traffic-notes"></textarea></div>
+                <div class="full"><label>Notas internas</label><textarea id="asset-notes"></textarea></div>
+            </div>
+            <div class="footer"><button class="danger" id="btn-disable-asset">Desactivar</button><button class="success" id="btn-save-asset">Guardar en SQLite</button></div>
+        </aside>
+    </main>
+
+    <main id="view-scheduler" class="view">
+        <aside class="left">
+            <div class="panel-title">Libreria de recursos</div>
+            <div class="stack">
+                <div id="expiring-card" class="smart-card">0 spots por expirar pronto</div>
+                <div id="orphans-card" class="smart-card" style="color:var(--bad);border-color:var(--bad);">0 spots sin metadata</div>
+                <div style="font-size:10px;color:#666;text-transform:uppercase;font-weight:800;">Spots listos para usar</div>
+                <div id="inventory-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+            </div>
+        </aside>
+        <section class="center">
+            <div class="toolbar" style="justify-content:space-between;">
+                <div class="mode-toggle">
+                    <span id="lbl-basic" class="mode-label active">Modo basico</span>
+                    <label class="switch"><input id="mode-toggle" type="checkbox"><span class="slider"></span></label>
+                    <span id="lbl-advanced" class="mode-label">Modo avanzado</span>
+                </div>
+                <button class="success" id="btn-save-block">Guardar pauta</button>
+            </div>
+            <div id="sub-basic" class="subview active">
+                <div class="toolbar"><button id="btn-new-basic-block">Nuevo evento limpio</button><button id="btn-clear-basic" class="danger">Limpiar lista</button><span style="margin-left:auto;color:#888;font-size:12px;">Arrastra los spots aqui en el orden que desees</span></div>
+                <div class="scroll">
+                    <table>
+                        <thead><tr><th style="width:48px;">Ord</th><th style="width:130px;">Hora</th><th>Spot</th><th>Regla</th><th style="width:80px;">Accion</th></tr></thead>
+                        <tbody id="basic-body"></tbody>
+                    </table>
+                    <div id="basic-drop" class="drop-hint">Suelta un spot aqui para agregarlo a la lista manual.</div>
+                </div>
+            </div>
+            <div id="sub-advanced" class="subview">
+                <div class="toolbar"><select id="advanced-day" style="width:150px;"><option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miercoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sabado</option><option value="0">Domingo</option></select><button id="btn-generate-grid">Generar grilla SQLite</button></div>
+                <div class="grid-head"><div>Hora</div><div>Bloque :00</div><div>Bloque :15</div><div>Bloque :30</div><div>Bloque :45</div></div>
+                <div id="advanced-grid" class="grid"></div>
+            </div>
+        </section>
+        <aside class="right">
+            <div class="panel-title">Inspector / Configuracion</div>
+            <div id="editor-basic" class="form">
+                <div class="full"><label>Nombre de pauta</label><input id="block-name" type="text"></div>
+                <div><label>Hora exacta</label><input id="block-time" type="time" step="1"></div>
+                <div><label>Prioridad evento</label><select id="block-priority"><option value="low">Baja</option><option value="normal">Normal</option><option value="high">Alta</option><option value="critical">Critica</option></select></div>
+                <div class="full"><label>Comportamiento con musica</label><select id="block-execution"><option value="wait">Esperar cancion actual</option><option value="interrupt">Cortar con prioridad</option><option value="max-delay">Retardo maximo</option></select></div>
+                <div><label>Repeticion</label><select id="repeat-active"><option value="0">Sin repeticion</option><option value="1">Repetir</option></select></div>
+                <div><label>Cada</label><input id="repeat-interval" type="number" min="0"></div>
+                <div class="full"><label>Notas</label><textarea id="block-notes"></textarea></div>
+            </div>
+            <div id="editor-advanced" class="form" style="display:none;">
+                <div class="full box" style="padding:10px;border-left:3px solid var(--warn);font-size:11px;color:#ccc;"><strong style="color:var(--warn);">Reglas automaticas:</strong> esta vista usara SQLite para repartir spots por vigencia, prioridad y separacion de competencia.</div>
+                <div class="full"><label>Frecuencia automatica</label><select id="asset-frequency"><option value="manual">Manual</option><option value="hourly">1 vez por hora</option><option value="daily_spread">Repartido en el dia</option><option value="morning">Solo manana</option><option value="afternoon">Solo tarde</option><option value="night">Solo noche</option></select></div>
+                <div class="full"><label>Separacion obligatoria</label><select id="asset-separation"><option value="category">Separar misma categoria</option><option value="client">Separar mismo cliente</option><option value="none">Permitir junto a competencia</option></select></div>
+            </div>
+        </aside>
+    </main>
+
+    <main id="view-continuity" class="view view-continuity">
+        <aside class="left">
+            <div class="panel-title">Inventario SQLite</div>
+            <div class="stack" id="continuity-inventory"></div>
+        </aside>
+        <section class="center">
+            <div class="toolbar"><div id="continuity-day-tabs" style="display:flex;gap:5px;"></div><span id="selected-slot-label" style="margin-left:auto;color:#888;font-size:12px;">Selecciona un bloque</span></div>
+            <div class="grid-head"><div>Hora</div><div>Bloque :00</div><div>Bloque :15</div><div>Bloque :30</div><div>Bloque :45</div></div>
+            <div id="continuity-grid" class="grid"></div>
+        </section>
+        <aside class="right">
+            <div class="panel-title">Editor de tanda</div>
+            <div style="padding:12px;background:#111;border-bottom:1px solid var(--line);">
+                <div id="tanda-title" style="font-weight:800;margin-bottom:8px;">Sin bloque seleccionado</div>
+                <div class="progress"><div id="tanda-progress"></div></div>
+                <div id="tanda-progress-text" style="display:flex;justify-content:space-between;color:#888;font-size:10px;margin-top:5px;"><span>Ocupado: 00:00</span><span>Limite: 03:00</span></div>
+            </div>
+            <div id="tanda-items" class="block-list"></div>
+            <div class="footer"><button class="danger" id="btn-empty-tanda">Vaciar bloque</button><button class="success" id="btn-save-tanda">Guardar cambios</button></div>
+        </aside>
+        <div class="floating">
+            <div class="float-head"><span>Monitor de pauta</span><span style="color:var(--bad);">Al aire</span></div>
+            <div class="float-body"><div style="color:var(--ok);font-size:10px;text-transform:uppercase;" id="monitor-type">Sin reproduccion</div><div id="monitor-title" style="font-size:15px;font-weight:800;">Esperando pauta</div><div class="progress"><div style="width:0%;background:var(--accent);"></div></div></div>
+            <div class="float-foot"><span id="monitor-next">Siguiente: --</span><span id="monitor-end">Fin tanda: --</span></div>
+        </div>
+    </main>
+
+    <footer style="height:28px;background:var(--header);border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 10px;color:#888;font-size:11px;"><span id="cm-status">Listo</span><span id="cm-count">0 elementos</span></footer>
+</div>
+<script src="commercial_manager.js"></script>
+</body>
+</html>

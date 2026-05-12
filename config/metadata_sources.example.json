@@ -1,0 +1,19 @@
+{
+  "deezer": {
+    "enabled": true
+  },
+  "spotify": {
+    "enabled": false,
+    "clientId": "",
+    "clientSecret": ""
+  },
+  "appleMusic": {
+    "enabled": false,
+    "developerToken": "",
+    "storefront": "us"
+  },
+  "musixmatch": {
+    "enabled": false,
+    "apiKey": ""
+  }
+}

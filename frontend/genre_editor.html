@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Editor de Géneros - LF Automatizador</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="subgenre_editor.css">
+    <style>
+        :root {
+            --bg-base: #121212;
+            --panel-bg: #18181a;
+            --panel-border: #333333;
+            --accent: #00a8ff;
+            --accent-hover: #0097e6;
+            --text-main: #e0e0e0;
+            --text-muted: #888888;
+            --success: #2ecc71;
+            --danger: #e74c3c;
+            --warning: #e74c3c; /* Fondo rojo para duplicados */
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+
+        body {
+            background: var(--bg-base);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Top Header */
+        .top-header {
+            padding: 15px 24px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--panel-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .top-header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+        }
+
+        /* Main Workspace */
+        .workspace {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            flex: 1 1 auto;
+            height: 0;
+            min-height: 0;
+        }
+
+        /* Left Side: Creation Panel */
+        .left-sidebar {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--panel-border);
+            background: var(--panel-bg);
+            z-index: 10;
+        }
+
+        .config-side {
+            padding: 20px;
+            flex: 1 1 auto;
+            overflow-y: auto;
+        }
+
+        .config-side .nav-header {
+            font-family: 'Segoe UI', 'Inter', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+            color: var(--accent);
+        }
+
+        .input-group { margin-bottom: 16px; }
+        .input-group label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            display: block;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .smart-input {
+            width: 100%;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #fff;
+            padding: 10px 12px;
+            border-radius: 4px;
+            outline: none;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+        
+        .smart-input option { background: #18181a; color: #ffffff; }
+        .smart-input:focus {
+            border-color: var(--accent);
+            background: rgba(0, 242, 254, 0.05);
+            box-shadow: 0 0 0 3px rgba(0, 242, 254, 0.15);
+        }
+
+        select.smart-input { 
+            cursor: pointer; 
+            appearance: none; 
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+            background-size: 16px;
+            padding-right: 40px;
+        }
+
+        .btn-full {
+            width: 100%;
+            padding: 12px;
+            border-radius: 4px;
+            border: none;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 10px;
+        }
+
+        .btn-success { background: var(--accent); color: #000; }
+        .btn-success:hover { background: var(--accent-hover); box-shadow: 0 4px 12px rgba(0, 168, 255, 0.3); transform: translateY(-1px); }
+        .btn-cancel { background: #333; color: #fff; }
+        .btn-cancel:hover { background: #444; }
+        .btn-danger { background: transparent; color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.4); }
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.1); border-color: var(--danger); box-shadow: 0 2px 10px rgba(239, 68, 68, 0.2); }
+
+        /* Right Side: Columns */
+        .columns-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            padding: 20px;
+            overflow-y: hidden;
+            background: rgba(0,0,0,0.2);
+        }
+
+        .genre-col {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .col-header {
+            padding: 12px 16px;
+            background: rgba(0,0,0,0.4);
+            border-bottom: 1px solid var(--panel-border);
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--accent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .col-header .count-badge {
+            background: rgba(255,255,255,0.1);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            color: #fff;
+        }
+
+        .genre-list {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .genre-item {
+            padding: 10px 14px;
+            margin-bottom: 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            font-weight: 500;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid transparent;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .genre-item:hover {
+            background: rgba(255,255,255,0.08);
+            transform: translateX(2px);
+        }
+
+        .genre-item.active {
+            background: rgba(0, 168, 255, 0.1);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        
+        .genre-item.multi-selected {
+            background: rgba(0, 168, 255, 0.2);
+            border-color: var(--accent);
+            box-shadow: 0 0 8px rgba(0, 168, 255, 0.3);
+        }
+
+        .genre-item.duplicate {
+            background: rgba(231, 76, 60, 0.15);
+            border-color: var(--warning);
+            color: #ffb8b8;
+        }
+        
+        .genre-item.duplicate.multi-selected {
+            background: rgba(231, 76, 60, 0.3);
+            box-shadow: 0 0 8px rgba(231, 76, 60, 0.5);
+        }
+
+        /* Drag & Drop */
+        .genre-item[draggable="true"] { cursor: grab; }
+        .genre-item[draggable="true"]:active { cursor: grabbing; }
+
+        /* Unify floating bar */
+        .unify-bar {
+            position: fixed;
+            bottom: -100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 32, 37, 0.95);
+            border: 1px solid var(--accent);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+            padding: 15px 25px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            z-index: 100;
+            transition: bottom 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backdrop-filter: blur(10px);
+        }
+        
+        .unify-bar.show {
+            bottom: 30px;
+        }
+        
+        .unify-bar span {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .btn-unify {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-unify:hover {
+            background: var(--accent-hover);
+            transform: scale(1.05);
+        }
+
+        /* Modals */
+        .modal-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.8);
+            display: none; align-items: center; justify-content: center;
+            z-index: 200;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .modal-backdrop.show { display: flex; opacity: 1; }
+
+        .modal-card {
+            width: min(500px, 90vw);
+            background: #1e2025;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            transform: scale(0.95);
+            transition: transform 0.2s;
+        }
+        .modal-backdrop.show .modal-card { transform: scale(1); }
+
+        .modal-title { font-size: 20px; font-weight: 800; margin-bottom: 15px; color: #fff; }
+        .modal-body { margin-bottom: 24px; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+        
+        .modal-actions { display: flex; justify-content: flex-end; gap: 12px; }
+        .modal-btn { padding: 10px 16px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .modal-btn.primary { background: var(--accent); color: #000; }
+        .modal-btn.primary:hover { background: var(--accent-hover); }
+        .modal-btn.secondary { background: rgba(255,255,255,0.1); color: #fff; }
+        .modal-btn.secondary:hover { background: rgba(255,255,255,0.15); }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+    </style>
+</head>
+<body>
+    <header class="top-header">
+        <h1>Curaduría de Géneros Musicales</h1>
+        <div style="font-size: 12px; color: var(--text-muted);" id="status">Sincronizado y listo.</div>
+    </header>
+
+    <main class="workspace">
+        <aside class="left-sidebar">
+            <div class="config-side" id="config-panel">
+                <div class="nav-header" id="panel-title">Crear / Editar Género</div>
+                
+                <input type="hidden" id="genre-key-hidden">
+                
+                <div class="input-group">
+                    <label for="genre-name">Nombre (Normalizado automáticamente)</label>
+                    <input id="genre-name" class="smart-input" type="text" autocomplete="off" placeholder="Ej: Reggaeton">
+                </div>
+                
+                <div class="input-group">
+                    <label for="genre-type">Categoría (Tipo)</label>
+                    <select id="genre-type" class="smart-input">
+                        <option value="padre">Género Padre (Raíz)</option>
+                        <option value="subgenero">Subgénero / Estilo</option>
+                        <option value="sin_identificar">Sin Identificar (En Cola)</option>
+                    </select>
+                </div>
+
+                <div class="input-group" id="parent-selector-group" style="display: none;">
+                    <label for="genre-parent">Género Padre Asignado</label>
+                    <select id="genre-parent" class="smart-input">
+                        <option value="">Seleccione un padre...</option>
+                    </select>
+                </div>
+
+                <div style="margin-top: 30px;">
+                    <button class="btn-full btn-success" id="btn-save">Guardar Cambios</button>
+                    <button class="btn-full btn-cancel" id="btn-cancel" style="display: none;">Cancelar Edición</button>
+                    <button class="btn-full btn-danger" id="btn-delete" style="display: none;">Eliminar Registro</button>
+                </div>
+            </div>
+        </aside>
+
+        <section class="columns-area">
+            <div class="genre-col">
+                <div class="col-header">
+                    Padres (Raíz) <span class="count-badge" id="count-padres">0</span>
+                </div>
+                <div class="genre-list" id="list-padres"></div>
+            </div>
+            
+            <div class="genre-col">
+                <div class="col-header">
+                    Subgéneros <span class="count-badge" id="count-subgeneros">0</span>
+                    <span id="subgenre-filter-label" style="font-size: 10px; color: var(--accent); margin-left: 8px; display: none;"></span>
+                    <a href="#" id="btn-show-all-subgenres" style="font-size: 10px; color: var(--accent); margin-left: 6px; text-decoration: underline; display: none;">Ver Todos</a>
+                </div>
+                <div class="genre-list" id="list-subgeneros"></div>
+            </div>
+            
+            <div class="genre-col">
+                <div class="col-header">
+                    Sin Identificar <span class="count-badge" id="count-sin-identificar">0</span>
+                </div>
+                <div class="genre-list" id="list-sin-identificar"></div>
+            </div>
+        </section>
+    </main>
+
+    <div class="unify-bar" id="unify-bar">
+        <span id="unify-text">2 géneros seleccionados para unificar</span>
+        <button class="btn-unify" id="btn-unify-trigger">Unificar (Resolver Duplicado)</button>
+    </div>
+
+    <!-- Modal for Unification -->
+    <div class="modal-backdrop" id="unify-modal">
+        <div class="modal-card">
+            <div class="modal-title">Motor de Unificación (5 Pasos)</div>
+            <div class="modal-body">
+                Has seleccionado varios elementos para fusionar. 
+                Elige cuál será el nombre y la categoría final que prevalecerá. Las canciones vinculadas a los IDs desechados se reasignarán automáticamente.
+                <div class="input-group" style="margin-top: 20px;">
+                    <label>Nombre que prevalece (Destino Final)</label>
+                    <select id="unify-target" class="smart-input"></select>
+                </div>
+                <div class="input-group">
+                    <label>Categoría Final</label>
+                    <select id="unify-target-type" class="smart-input">
+                        <option value="padre">Género Padre (Raíz)</option>
+                        <option value="subgenero">Subgénero / Estilo</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn secondary" id="btn-cancel-unify">Cancelar</button>
+                <button class="modal-btn primary" id="btn-confirm-unify">Ejecutar Fusión</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="genre_editor.js"></script>
+</body>
+</html>

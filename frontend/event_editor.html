@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configurar Evento</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { display: flex; flex-direction: column; height: 100vh; margin: 0; background: #1a1a1c; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; min-width: 760px; }
+        .editor-content { flex: 1; overflow-y: auto; padding: 15px; }
+        .section-box { background: #222225; border: 1px solid #333; border-radius: 4px; padding: 15px; margin-bottom: 15px; }
+        .section-title { font-size: 13px; font-weight: bold; color: #00a8ff; margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px;}
+        
+        .row-item { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .row-item label { font-size: 12px; width: 140px; font-weight: bold; color: #ccc;}
+        .input-text { flex: 1; background: #111; color: white; border: 1px solid #444; padding: 6px; border-radius: 3px; outline: none; font-size: 12px;}
+        .input-text:focus { border-color: #00a8ff;}
+        .input-text:disabled { opacity: 0.6; cursor: not-allowed; }
+        
+        .days-grid, .weeks-grid { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; padding: 10px; background: #111; border-radius: 4px; border: 1px inset #333;}
+        .day-box { display: flex; align-items: center; gap: 4px; font-size: 12px;}
+        
+        .other-hours-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin-top: 10px; background: #111; padding: 10px; border-radius: 4px; border: 1px inset #333;}
+        
+        .radio-group { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #ddd;}
+        .radio-group-horizontal { display: flex; flex-direction: row; gap: 20px; margin-bottom: 10px; font-size: 12px; color: #ddd;}
+        
+        .info-note { background: #2c3e50; border-left: 4px solid #f39c12; padding: 10px; font-size: 11px; color: #ddd; margin-top: 15px; border-radius: 0 4px 4px 0;}
+        
+        /* ESTILOS PARA FUNCIONES EN DESARROLLO (GHOSTING) */
+        .disabled-feature { opacity: 0.4; pointer-events: none; position: relative; filter: grayscale(100%); }
+        .badge-soon { background: #e74c3c; color: white; font-size: 9px; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .calendar-icon { cursor: pointer; transition: 0.2s; user-select: none; }
+        .calendar-icon:hover { transform: scale(1.1); }
+    </style>
+</head>
+<body>
+
+    <div class="editor-content">
+        
+        <div class="section-box">
+            <h4 class="section-title">1. Origen del Audio</h4>
+            <div class="radio-group-horizontal" style="margin-bottom: 15px;">
+                <label><input type="radio" name="ev-source-type" value="file" checked> 🎵 Archivo</label>
+                <label><input type="radio" name="ev-source-type" value="playlist"> 📄 Playlist</label>
+                <label><input type="radio" name="ev-source-type" value="folder"> 📁 Carpeta Rotativa</label>
+                <label><input type="radio" name="ev-source-type" value="commercial"> Comerciales</label>
+                <label class="disabled-feature"><input type="radio" name="ev-source-type" value="macro"> ⚙️ Macro / Comando de Red <span class="badge-soon">Próximamente</span></label>
+            </div>
+            <div class="row-item">
+                <input type="text" id="ev-filepath" class="input-text" placeholder="Selecciona la ruta de origen..." readonly>
+                <select id="ev-commercial-block" class="input-text" style="display:none;"></select>
+                <button type="button" id="btn-browse" class="settings-btn">Examinar</button>
+            </div>
+        </div>
+
+        <div class="section-box">
+            <h4 class="section-title">2. Programación y Caducidad</h4>
+            
+            <div class="row-item">
+                <label>Hora de inicio:</label>
+                <input type="time" id="ev-time" class="input-text" step="1" value="12:00:00" style="max-width: 150px; font-family: Consolas, monospace;">
+            </div>
+            
+            <div style="margin-top: 15px; margin-bottom: 15px;">
+                <label style="font-size: 12px; font-weight: bold; cursor: pointer; color: #ccc;">
+                    <input type="checkbox" id="chk-other-hours"> Repetir en otras horas (Clona Minutos y Segundos)
+                </label>
+                <div id="other-hours-container" class="other-hours-grid" style="display: none;"></div>
+            </div>
+
+            <div class="radio-group-horizontal" style="margin-bottom: 10px; border-top: 1px solid #333; padding-top: 15px;">
+                <label><input type="radio" name="ev-days" value="once" checked> Una sola vez</label>
+                <label><input type="radio" name="ev-days" value="daily"> Diariamente</label>
+                <label><input type="radio" name="ev-days" value="specific"> Días de la Semana</label>
+                <label><input type="radio" name="ev-days" value="monthlyWeeks"> Semana del Mes</label>
+            </div>
+            
+            <div id="specific-days-container" class="days-grid" style="display: none;">
+                <label class="day-box"><input type="checkbox" class="chk-day" value="1"> Lun</label>
+                <label class="day-box"><input type="checkbox" class="chk-day" value="2"> Mar</label>
+                <label class="day-box"><input type="checkbox" class="chk-day" value="3"> Mié</label>
+                <label class="day-box"><input type="checkbox" class="chk-day" value="4"> Jue</label>
+                <label class="day-box"><input type="checkbox" class="chk-day" value="5"> Vie</label>
+                <label class="day-box"><input type="checkbox" class="chk-day" value="6"> Sáb</label>
+                <label class="day-box"><input type="checkbox" class="chk-day" value="0"> Dom</label>
+            </div>
+
+            <div id="monthly-weeks-container" style="margin-top: 15px; display: none;">
+                <label style="font-size: 12px; font-weight: bold; color: #ccc;">Semanas del Mes:</label>
+                <div class="weeks-grid">
+                    <label class="day-box"><input type="checkbox" class="chk-week" value="1"> 1ra Semana</label>
+                    <label class="day-box"><input type="checkbox" class="chk-week" value="2"> 2da Semana</label>
+                    <label class="day-box"><input type="checkbox" class="chk-week" value="3"> 3ra Semana</label>
+                    <label class="day-box"><input type="checkbox" class="chk-week" value="4"> 4ta Semana</label>
+                    <label class="day-box"><input type="checkbox" class="chk-week" value="5"> Última Semana</label>
+                </div>
+            </div>
+
+            <div class="row-item" style="margin-top: 15px;">
+                <label style="width: auto; margin-right: 10px; cursor: pointer; color: #ccc;">
+                    <input type="checkbox" id="chk-validity"> Rango de Validez:
+                </label>
+                <div style="display: flex; gap: 10px; align-items: center; flex: 1; opacity: 0.5; transition: 0.2s;" id="validity-container">
+                    <span style="font-size: 11px; color:#888;">Desde:</span>
+                    <div style="display: flex; align-items: center;">
+                        <input type="date" id="ev-date-start" class="input-text" title="Doble clic para calendario" disabled>
+                        <span class="calendar-icon" id="icon-date-start" title="Abrir Calendario" style="margin-left: 5px;">📆</span>
+                    </div>
+                    <span style="font-size: 11px; color:#888; margin-left: 10px;">Hasta:</span>
+                    <div style="display: flex; align-items: center;">
+                        <input type="date" id="ev-date-end" class="input-text" title="Doble clic para calendario" disabled>
+                        <span class="calendar-icon" id="icon-date-end" title="Abrir Calendario" style="margin-left: 5px;">📆</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row-item" style="margin-top: 15px; border-top: 1px dashed #333; padding-top: 10px;">
+                <label style="width: auto; margin-right: 10px;">
+                    <input type="checkbox" id="chk-cyclic-active"> Repetición Cíclica:
+                </label>
+                <div style="display: flex; gap: 5px; align-items: center; flex: 1;">
+                    <span style="font-size: 11px; color:#888;">Cada</span>
+                    <input type="number" id="ev-cyclic-interval" class="input-text" style="max-width: 45px;" disabled>
+                    <select id="ev-cyclic-unit" class="input-text" style="max-width: 90px; padding: 4px;" disabled>
+                        <option value="minutes">Minutos</option>
+                        <option value="hours">Horas</option>
+                    </select>
+                    <span style="font-size: 11px; color:#888; margin-left: 5px;">Límite:</span>
+                    <input type="number" id="ev-cyclic-limit" class="input-text" style="max-width: 45px;" disabled>
+                    <span style="font-size: 11px; color:#888;">veces.</span>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="section-box">
+            <h4 class="section-title">3. Comportamiento en la Lista Principal</h4>
+            <div class="radio-group">
+                <label><input type="radio" name="ev-action" value="add" checked> ➕ Insertar a la playlist (Agregar como siguiente, después de la actual)</label>
+                <label><input type="radio" name="ev-action" value="temp"> ⏳ Temporal (Se borra al terminar, ideal para comerciales)</label>
+                <label><input type="radio" name="ev-action" value="clear"> 🗑️ Borrar toda la lista actual y cargar este evento</label>
+                <label><input type="radio" name="ev-action" value="append-end"> 🔽 Agregar al final de la lista</label>
+                
+                <label class="disabled-feature" style="margin-top: 8px;"><input type="radio" name="ev-action" value="ducking" disabled> 🎙️ Superposición / Pisador (Baja el volumen maestro, no afecta la lista) <span class="badge-soon">Próximamente</span></label>
+                <label class="disabled-feature"><input type="checkbox" disabled> Aplicar transiciones suaves (Fade In / Fade Out) <span class="badge-soon">Próximamente</span></label>
+            </div>
+        </div>
+
+        <div class="section-box">
+            <h4 class="section-title">4. Reglas de Ejecución</h4>
+            <div class="radio-group">
+                <label><input type="radio" name="ev-exec" value="interrupt" checked> ⚡ Interrumpir Inmediatamente (Corta la canción actual)</label>
+                <label><input type="radio" name="ev-exec" value="wait"> ⏳ Esperar a que finalice la canción actual</label>
+                <label><input type="radio" name="ev-exec" value="max-delay"> ⌛ Tiempo Máx de Espera (Tolerancia)</label>
+            </div>
+
+            <div style="margin-top: 15px; border-top: 1px dashed #333; padding-top: 10px;">
+                <div class="row-item">
+                    <label style="width: auto; margin-right: 10px;">Tiempo Máx:</label>
+                    <input type="number" id="ev-max-delay-minutes" class="input-text" style="max-width: 50px;" min="0" disabled>
+                    <span style="font-size: 11px; color:#888;">min</span>
+                    <input type="number" id="ev-max-delay-seconds" class="input-text" style="max-width: 50px;" min="0" max="59" disabled>
+                    <span style="font-size: 11px; color:#888; margin-left: 2px;">seg. Acción:</span>
+                    <select id="ev-max-delay-action" class="input-text" style="max-width: 140px;" disabled>
+                        <option value="force">Forzar evento</option>
+                        <option value="omit">Omitir este evento</option>
+                    </select>
+                </div>
+                
+                <div class="row-item" style="margin-top: 10px;">
+                    <label style="width: auto; margin-right: 10px;">
+                        <input type="checkbox" id="chk-require-playing"> No ejecutar si el reproductor está detenido.
+                    </label>
+                </div>
+
+                <div style="margin-top: 15px; border-top: 1px dashed #333; padding-top: 10px;">
+                    <div class="row-item">
+                        <label style="width: auto; margin-right: 10px;">Nivel de Prioridad:</label>
+                        <select id="ev-priority" class="input-text" style="max-width: 130px;">
+                            <option value="low">Baja</option>
+                            <option value="normal" selected>Normal</option>
+                            <option value="high">Alta</option>
+                            <option value="critical">Critica</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-box">
+            <h4 class="section-title">5. Apariencia y Organización</h4>
+            <div class="row-item">
+                <label>Nombre del Evento:</label>
+                <input type="text" id="ev-name" class="input-text" placeholder="Ej: Bloque de Publicidad">
+            </div>
+            
+            <div class="row-item">
+                <label>Grupo:</label>
+                <select id="ev-group" class="dark-select" style="flex: 1; background: #111; color: white; border: 1px solid #444; padding: 6px;"></select>
+                <button type="button" id="btn-edit-groups" class="settings-btn" title="Gestionar Grupos" style="margin-left: 5px;">⚙️</button>
+            </div>
+
+            <div class="row-item">
+                <label>Color de Texto:</label>
+                <div style="display:flex; align-items:center; gap: 10px;">
+                    <input type="color" id="ev-color-txt" class="color-picker-native" value="#ffffff">
+                </div>
+            </div>
+            
+            <div class="row-item">
+                <label>Color de Fondo:</label>
+                <div style="display:flex; align-items:center; gap: 10px;">
+                    <input type="color" id="ev-color-bg" class="color-picker-native" value="#1a1a1c">
+                    <small style="color: #777;">(Fondo para este evento)</small>
+                </div>
+            </div>
+
+            <div class="row-item" style="justify-content: flex-end; margin-top: -5px; margin-bottom: 15px;">
+                <button type="button" id="btn-reset-ev-colors" class="settings-btn" title="Restablecer a colores de fábrica">↺ Restablecer Colores</button>
+            </div>
+
+            <div class="info-note">
+                <strong>🚥 Sistema de Semáforo Activado:</strong> El color de fondo cambiará automáticamente en la lista principal según se acerque la hora de ejecución.<br>
+                • <strong>15 min:</strong> Naranja transparente<br>
+                • <strong>5 min:</strong> Naranja sólido<br>
+                • <strong>1 min:</strong> Rojo sólido<br>
+                • <strong>Modo Manual:</strong> Parpadeo por 10 segundos.
+            </div>
+        </div>
+
+    </div> 
+    
+    <div class="bottom-buttons" style="padding: 15px; background: #222225; border-top: 1px solid #333; display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" id="btn-cancel" class="settings-btn" style="background: #444;">Cancelar</button>
+        <button type="button" id="btn-save" class="settings-btn" style="background: #27ae60;">💾 Guardar Evento</button>
+    </div>
+
+    <script src="event_editor.js"></script>
+</body>
+</html>

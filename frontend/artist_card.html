@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Cédula de Artista - LF Automatizador</title>
+    <style>
+        :root { --bg:#121212; --panel:#18181a; --header:#1a1a1c; --border:#333; --accent:#00a8ff; --text:#e0e0e0; --muted:#888; --success:#2ecc71; --warning:#f39c12; --danger:#e74c3c; }
+        * { box-sizing:border-box; margin:0; padding:0; font-family:"Segoe UI",sans-serif; }
+        * { scrollbar-width:thin; scrollbar-color:#5a5f68 #141416; }
+        *::-webkit-scrollbar { width:10px; height:10px; }
+        *::-webkit-scrollbar-track { background:#141416; }
+        *::-webkit-scrollbar-thumb { background:#4a4f58; border:2px solid #141416; border-radius:10px; }
+        *::-webkit-scrollbar-thumb:hover { background:#6a707a; }
+        *::selection { background:rgba(0,168,255,.24); color:#fff; }
+        body { height:100vh; background:var(--bg); color:var(--text); display:flex; flex-direction:column; overflow:hidden; }
+        button, input, select, textarea { font:inherit; }
+        button { border:1px solid var(--border); border-radius:4px; background:#222; color:#fff; padding:8px 10px; font-size:12px; font-weight:700; cursor:pointer; }
+        button:hover { border-color:var(--accent); color:var(--accent); }
+        .top-bar { background:var(--header); border-bottom:1px solid var(--border); padding:10px 16px; display:flex; justify-content:space-between; align-items:center; gap:16px; }
+        .module-title { font-size:15px; font-weight:800; color:var(--accent); }
+        .top-actions { display:flex; align-items:center; gap:10px; margin-left:auto; }
+        .top-actions .btn-save-top { order:-1; }
+        .edit-toggle { display:flex; background:#111; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+        .edit-toggle button { border:0; border-radius:0; background:transparent; color:var(--muted); }
+        .edit-toggle button.active { background:var(--accent); color:#000; }
+        .main-layout { flex:1; min-height:0; display:grid; grid-template-columns:360px 1fr; overflow:hidden; }
+        .profile-side { background:var(--panel); border-right:1px solid var(--border); overflow-y:auto; }
+        .photo-hero { height:210px; background:#050505; position:relative; border-bottom:3px solid var(--accent); display:flex; align-items:center; justify-content:center; text-align:center; }
+        .photo-hero img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.62; }
+        .photo-placeholder { color:#fff; font-size:28px; font-weight:900; padding:18px; line-height:1.05; }
+        .artist-title { position:absolute; left:16px; right:16px; bottom:14px; font-size:31px; font-weight:900; color:#fff; text-shadow:0 2px 10px rgba(0,0,0,.85); line-height:1; }
+        .profile-body { padding:18px; display:flex; flex-direction:column; gap:14px; }
+        .field-group { display:flex; flex-direction:column; gap:5px; }
+        .field-label { font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:800; }
+        .edit-input { width:100%; background:#111; border:1px solid var(--border); color:#fff; padding:8px; border-radius:4px; font-size:13px; outline:none; }
+        .edit-input:focus { border-color:var(--accent); }
+        textarea.edit-input { resize:vertical; min-height:104px; line-height:1.45; }
+        .read-view { font-size:13px; color:#fff; line-height:1.55; }
+        .wiki-link { color:var(--accent); cursor:pointer; text-decoration:none; font-weight:800; background:rgba(0,168,255,.12); padding:0 4px; border-radius:3px; }
+        .wiki-link:hover { background:var(--accent); color:#000; }
+        .genre-pill { display:inline-block; background:#222; border:1px solid var(--border); color:var(--text); padding:3px 8px; border-radius:12px; font-size:11px; margin:2px 2px 0 0; }
+        .btn-smart { background:rgba(0,168,255,.10); border-color:var(--accent); color:var(--accent); width:100%; }
+        .btn-save-top { background:var(--success); color:#fff; border-color:var(--success); min-width:142px; }
+        .btn-save-top.dirty { box-shadow:0 0 0 2px rgba(46,204,113,.22); }
+        .summary-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+        .summary-card { background:#17191d; border:1px solid #30343b; border-radius:6px; padding:9px 10px; min-width:0; }
+        .summary-label { color:var(--muted); font-size:10px; text-transform:uppercase; font-weight:900; margin-bottom:4px; }
+        .summary-value { color:#fff; font-size:13px; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .content-side { min-width:0; padding:20px; display:flex; flex-direction:column; gap:18px; overflow:hidden; }
+        .section-title { font-size:13px; font-weight:800; color:var(--muted); border-bottom:1px solid var(--border); padding-bottom:8px; text-transform:uppercase; }
+        .collab-grid { display:flex; flex-wrap:wrap; gap:9px; padding-top:10px; }
+        .collab-item { background:var(--panel); border:1px solid var(--border); padding:7px 13px; border-radius:20px; font-size:12px; font-weight:700; cursor:pointer; }
+        .table-container { flex:1; min-height:0; background:var(--panel); border:1px solid var(--border); border-radius:6px; overflow:hidden; display:flex; flex-direction:column; }
+        .table-tools { padding:10px 14px; background:#111; display:grid; grid-template-columns:auto minmax(160px,1fr) auto minmax(150px,1fr) auto minmax(150px,1fr) auto; gap:10px; align-items:center; border-bottom:1px solid var(--border); }
+        .table-tools input { min-width:0; }
+        .selected-counter { color:var(--muted); font-size:12px; font-weight:800; white-space:nowrap; }
+        .table-wrap { flex:1; min-height:0; overflow:auto; }
+        table { width:100%; border-collapse:collapse; table-layout:fixed; }
+        th { position:sticky; top:0; background:#111; padding:10px; font-size:11px; color:var(--muted); border-bottom:1px solid var(--border); text-align:left; }
+        td { padding:8px 10px; border-bottom:1px solid #222; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        tr { user-select:none; }
+        tr:hover td { background:#222; }
+        tr.selected td { background:rgba(0,168,255,.10); }
+        .play-col { width:52px; text-align:right; }
+        .preview-btn { width:30px; height:28px; padding:0; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; color:var(--accent); background:#16191d; border-color:#3a3f46; }
+        .preview-btn:hover, .preview-btn.playing { background:var(--accent); color:#000; border-color:var(--accent); }
+        .status { color:var(--muted); font-size:12px; min-width:220px; text-align:right; }
+        body.mode-read .show-edit { display:none !important; }
+        body.mode-edit .show-read { display:none !important; }
+        @media (max-width: 980px) {
+            .main-layout { grid-template-columns:1fr; overflow:auto; }
+            .profile-side { border-right:0; border-bottom:1px solid var(--border); }
+            .content-side { min-height:520px; }
+            .table-tools { grid-template-columns:1fr 1fr; }
+            .selected-counter { grid-column:1 / -1; }
+        }
+    </style>
+</head>
+<body class="mode-read" id="app-body">
+    <div class="top-bar">
+        <div class="module-title">Curaduria Musical (Cedulas)</div>
+        <div class="top-actions">
+            <div class="status" id="artist-status">Listo.</div>
+            <button class="btn-save-top" id="btn-save-top">Guardar cambios</button>
+            <div class="edit-toggle">
+                <button id="btn-read">MODO LECTURA</button>
+                <button id="btn-edit">MODO EDICION</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-layout">
+        <aside class="profile-side">
+            <div class="photo-hero" id="photo-hero">
+                <div class="photo-placeholder" id="photo-placeholder">Artista</div>
+                <img id="artist-photo" alt="Foto del artista">
+                <div class="artist-title" id="artist-title">Artista</div>
+            </div>
+            <div class="profile-body">
+                <button class="btn-smart show-edit" id="btn-fetch">Auto-completar desde Internet</button>
+                <div class="field-group show-edit">
+                    <span class="field-label">Nombre del artista</span>
+                    <input id="artist-name" class="edit-input" type="text" autocomplete="off">
+                </div>
+                <div class="field-group">
+                    <span class="field-label">Tipo de Artista</span>
+                    <div class="read-view show-read" id="read-artist-type"></div>
+                    <select id="artist-type" class="edit-input show-edit">
+                        <option>Solista (M)</option><option>Solista (F)</option><option>Duo</option><option>Agrupacion / Banda</option><option>Orquesta</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <span class="field-label">Nacionalidad(es)</span>
+                    <div class="read-view show-read" id="read-nationalities"></div>
+                    <input id="artist-nationalities" class="edit-input show-edit" type="text" list="country-options" placeholder="Estados Unidos / Republica Dominicana">
+                    <datalist id="country-options"></datalist>
+                </div>
+                <div class="field-group">
+                    <span class="field-label">Genero Principal (Master)</span>
+                    <div class="read-view show-read" id="read-main-genre"></div>
+                    <select id="artist-main-genre" class="edit-input show-edit"></select>
+                </div>
+                <div class="field-group">
+                    <span class="field-label">Generos Secundarios (Subgeneros)</span>
+                    <div class="read-view show-read" id="read-subgenres"></div>
+                    <input id="artist-subgenres" class="edit-input show-edit" type="text" placeholder="Separados por coma">
+                </div>
+                <div class="field-group">
+                    <span class="field-label">Biografia / Notas (Wiki)</span>
+                    <div class="read-view show-read" id="read-biography" style="text-align:justify;"></div>
+                    <textarea id="artist-biography" class="edit-input show-edit" placeholder="Usa [Nombre Artista] para enlazar otra cedula."></textarea>
+                </div>
+            </div>
+        </aside>
+
+        <main class="content-side">
+            <section class="summary-strip">
+                <div class="summary-card">
+                    <div class="summary-label">Canciones</div>
+                    <div class="summary-value" id="summary-tracks">0</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-label">Genero principal</div>
+                    <div class="summary-value" id="summary-main-genre">N/A</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-label">Estado</div>
+                    <div class="summary-value" id="summary-curation">Pendiente</div>
+                </div>
+            </section>
+            <section>
+                <div class="section-title">Red de Colaboradores Frecuentes</div>
+                <div class="collab-grid" id="collab-grid"></div>
+            </section>
+            <section class="table-container">
+                <div class="section-title" id="tracks-title" style="padding:15px 15px 0;border:0;">Biblioteca Musical Enlazada</div>
+                <div class="table-tools">
+                    <input id="track-filter" class="edit-input" type="text" placeholder="Buscar canciones, genero o anio">
+                    <span class="selected-counter" id="selected-track-count">0 seleccionadas</span>
+                    <button class="show-edit" id="btn-select-all">Seleccionar todo</button>
+                    <input id="bulk-main-genre" class="edit-input show-edit" type="text" list="bulk-genre-options" placeholder="Genero principal">
+                    <button class="show-edit" id="btn-apply-main-genre">Aplicar genero</button>
+                    <input id="bulk-subgenre" class="edit-input show-edit" type="text" list="bulk-genre-options" placeholder="Subgenero">
+                    <button class="show-edit" id="btn-apply-subgenre">Aplicar subgenero</button>
+                    <datalist id="bulk-genre-options"></datalist>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Titulo</th><th>Genero Cancion</th><th>Subgeneros</th><th>Rol del Artista</th><th>Anio</th><th class="play-col"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="artist-tracks-body"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="artist_card.js"></script>
+</body>
+</html>
