@@ -279,7 +279,7 @@ function clearPlayerPlaybackMeta(player) {
     playerPlaybackMeta.delete(player);
 }
 
-let uiPrefs = loadConfig(uiPrefsPath, { controlsPos: 'top', temp: true, hum: true, leftPanel: true, ext: false, sysLog: true, showRemainingTime: false, cartwall: false, playlistColumnWidths: [92, 520, 96, 82, 82] });
+let uiPrefs = loadConfig(uiPrefsPath, { controlsPos: 'bottom', temp: true, hum: true, leftPanel: true, ext: false, sysLog: true, showRemainingTime: false, cartwall: false, playlistColumnWidths: [92, 520, 96, 82, 82] });
 let fxPrefs = loadConfig(fxPrefsPath, { preamp: 0, pan: 0, mono: false, eq_bands: [0,0,0,0,0,0,0,0], eq_on: false, comp_on: false, lim_on: false, order: ['eq','comp','limiter'], custom_presets: {}, active_preset: 'def_Plano (Reset)' });
 let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, { modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, timeFolder: '', duckingFade: 1.0, duckingVolume: 20, outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default', monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default', playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'webAudio', chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false, num_mus_fadein: 0, num_mus_fadeout: 0, num_mus_mix: 0, num_mus_mix_db: -14, eventsMasterActive: true, eventsManualOnly: false }));
 let clockwheelPrefs = loadConfig(clockwheelPrefsPath, { pattern: '', targetMinutes: 60, sepArtist: 4, sepTitle: 8, sepFolder: 2, clearList: false });
@@ -3400,7 +3400,7 @@ function renderTree(items, container, isRoot = false) {
         
         if (isDir) { 
             div.dataset.path = itemPath;
-            div.innerHTML = `<span class="icon-folder">${icon}</span> ${name}`; div.draggable = true; 
+            div.innerHTML = `<span class="tree-toggle">+</span><span class="icon-folder">${icon}</span> ${name}`; div.draggable = true; 
             div.ondragstart = (e) => { 
                 if (!div.classList.contains('selected')) { clearSelection(); div.classList.add('selected'); updateExplorerItemsCache(); const idx = explorerItemsCache.indexOf(div); lastSelectedExplorerIndex = idx; anchorExplorerIndex = idx; }
                 const paths = getSelectedExplorerPaths();
@@ -3409,18 +3409,38 @@ function renderTree(items, container, isRoot = false) {
                 else e.dataTransfer.setData('text/plain', 'multiple_explorer_items');
                 e.dataTransfer.effectAllowed = 'copy'; 
             }; 
-            div.onclick = (e) => { e.stopPropagation(); hideAllMenus(); handleExplorerSelection(e, div); }; 
+            div.onclick = (e) => { 
+                e.stopPropagation(); 
+                if (e.target.classList.contains('tree-toggle')) {
+                    div.ondblclick(e);
+                    return;
+                }
+                hideAllMenus(); handleExplorerSelection(e, div); 
+            }; 
             div.ondblclick = (e) => { 
                 e.stopPropagation(); 
                 let childUl = li.querySelector('ul'); 
-                if (childUl) childUl.remove(); 
-                else { 
+                const iconSpan = div.querySelector('.icon-folder');
+                const toggleSpan = div.querySelector('.tree-toggle');
+                if (childUl) { 
+                    if (childUl.style.display === 'none') {
+                        childUl.style.display = 'block';
+                        if (iconSpan && iconSpan.textContent === '📁') iconSpan.textContent = '📂';
+                        if (toggleSpan) toggleSpan.textContent = '-';
+                    } else {
+                        childUl.style.display = 'none';
+                        if (iconSpan && iconSpan.textContent === '📂') iconSpan.textContent = '📁';
+                        if (toggleSpan) toggleSpan.textContent = '+';
+                    }
+                } else { 
                     try { 
+                        if (iconSpan && iconSpan.textContent === '📁') iconSpan.textContent = '📂';
+                        if (toggleSpan) toggleSpan.textContent = '-';
                         const children = fs.readdirSync(itemPath).map(child => path.join(itemPath, child)); 
                         renderTree(children, li); 
                     } catch (err) { console.error("Error abriendo carpeta:", err); } 
                 } 
-            }; 
+            };
             div.oncontextmenu = (e) => { 
                 e.preventDefault(); e.stopPropagation(); clearSelection(); div.classList.add('selected'); contextMenuTargetFolder = itemPath; 
                 let explicitId = explicitTypesDB[itemPath];

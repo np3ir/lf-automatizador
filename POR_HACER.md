@@ -31,7 +31,10 @@ Este documento es nuestra hoja de ruta compartida. Aquí mantendremos un registr
 
 ## ⚡ 4. Optimización de Rendimiento y Arquitectura "Divide y Vencerás" (Auditoría Integral)
 
-> **Principio: Electron = Control Remoto.** `render.js` (actualmente de ~7,000 líneas y >400KB) debe reducirse a ser una interfaz ligera que solo "pinta" y "envía comandos". El trabajo pesado debe delegarse al nuevo motor Rust, a Workers secundarios o al proceso Main de Node.js.
+> **Principio Fundamental: La Interfaz (Renderer) es un Control Remoto "Tonto".** 
+> * **Cero Cálculos Futuros:** La interfaz gráfica (HTML/CSS/JS del frontend) NO debe tomar decisiones lógicas, NO debe precalcular tiempos futuros, ni procesar audio. 
+> * **Datos Pre-digeridos:** El frontend solo debe encargarse de **dibujar** y recibir los datos ya preparados desde el backend (Node.js o Rust). Si hay que sumar tiempos, buscar bases de datos o mezclar audio, eso ocurre estrictamente en el backend.
+> * **Separación Total:** `render.js` debe reducirse drásticamente. Su única misión es enviar la orden del usuario (ej. un clic en "Play") y mostrar la respuesta. El motor principal y toda la inteligencia debe vivir en Node.js o Rust, garantizando la independencia de los procesos.
 
 ### 🔴 Tareas Críticas de Delegación (Sacar de `render.js`)
 - [ ] **Análisis de Ondas de Audio (Waveform Peaks):** Actualmente `buildMainWaveformPeaks()` lee búferes pesados y hace cálculos matemáticos intensivos en JavaScript. Esto bloquea el hilo principal y dispara el uso de RAM. **Acción:** Delegar al motor Rust para que decodifique y devuelva un array ligero de picos listos para pintar.
@@ -70,6 +73,28 @@ Este documento es nuestra hoja de ruta compartida. Aquí mantendremos un registr
 - [ ] **Modo Linea/Auxiliar para playlists:** Renombrar en consola las playlists como `Linea/Auxiliar` para rutear salidas exclusivas de audio.
 - [ ] **FX como parte formal del motor:** Documentar el flujo del Master FX (EQ, Compresor) para el nuevo motor Rust.
 - [x] Limpieza de BD de artistas y Cédula de Artista reparadas.
+
+## 🐧 7. Preparación para Compatibilidad con Linux (Cross-Platform)
+
+Esta sección define la hoja de ruta para lograr que el Automatizador funcione en Linux, **sin abandonar Windows**. Ambos ecosistemas convivirán pacíficamente en este mismo proyecto. El objetivo es lograr "Cero Dependencias" en Linux (instalar y ejecutar, igual que en Windows).
+
+> **Regla de Oro: Código Base Único (Convivencia Windows/Linux).** 
+> ⚠️ **ATENCIÓN PARA DESARROLLADORES E IAs:** NO se debe eliminar ni destruir el código existente de Windows. La lógica de Windows y Linux debe convivir en los mismos archivos. 
+> NO se crearán carpetas separadas. Se usará exactamente el mismo código base para ambos sistemas. Cuando un proceso sea diferente según el sistema operativo (ej. invocar un motor `.exe` vs un binario de Linux), se debe utilizar un condicional (`if (process.platform === 'win32') { ... } else if (process.platform === 'linux') { ... }`). La compatibilidad con Linux se **suma** al código actual de Windows, no lo reemplaza.
+
+### 🟢 Nivel 1: Cambios Seguros (Hacer ahora desde Windows)
+- [ ] **Estandarizar Rutas de Archivos:** Buscar concatenaciones manuales de directorios (ej. `carpeta + '\\' + archivo`) y reemplazarlas en todo el código por la función nativa `path.join(carpeta, archivo)`. Esto garantiza que las barras (`\` vs `/`) se adapten automáticamente al sistema operativo.
+- [ ] **Rutas de Datos de Usuario:** Asegurarse de que toda lectura/escritura de bases de datos o configuraciones use `app.getPath('userData')` de Electron, evitando referencias absolutas a discos (`C:\`).
+- [ ] **Scripts de Arranque:** Crear un archivo `iniciar.sh` equivalente a `Iniciar_Automatizador.bat` para facilitar pruebas en Linux.
+
+### 🟡 Nivel 2: Cuidado con el Sistema Operativo (Case Sensitivity)
+- [ ] **Auditoría de Mayúsculas/Minúsculas:** Linux distingue entre `Archivo.mp3` y `archivo.mp3`. Programar una validación o script de mantenimiento que asegure que los registros de la base de datos SQLite coinciden **exactamente** en mayúsculas y minúsculas con los nombres físicos en el disco duro.
+
+### 🔴 Nivel 3: El Motor y Empaquetado (Hacer cuando el motor Rust esté listo)
+- [ ] **Eliminación Total de Web Audio API:** Confirmar que el motor JavaScript haya sido erradicado antes de intentar compilar para Linux, evitando arrastrar código híbrido.
+- [ ] **Compilación Cruzada de Rust:** Configurar Cargo para compilar el motor de audio en binarios nativos para Linux, asegurando la comunicación con ALSA/PulseAudio mediante librerías multiplataforma.
+- [ ] **Permisos de Ejecución (FFmpeg y Rust):** Garantizar que al empaquetar para Linux, los binarios de FFmpeg nativo y el motor de Rust adquieran permisos de ejecución (`chmod +x`), de lo contrario el SO los bloqueará.
+- [ ] **Exportación Cero Dependencias:** Configurar `electron-builder` en el `package.json` para generar los instaladores `.deb` (Debian/Ubuntu/Mint) y `.AppImage` (Portable Universal), los cuales llevarán incrustados Node, el navegador, FFmpeg y el Motor de Audio sin requerir instalaciones externas.
 
 ---
 *Nota: Este archivo se irá actualizando a medida que deleguemos la arquitectura de "render.js masivo" al concepto de "Divide y Vencerás". El objetivo principal para esta fase es transformar a Electron en un control remoto puro.*
