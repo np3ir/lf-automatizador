@@ -19,6 +19,7 @@ Este documento es nuestra hoja de ruta compartida. Aquí mantendremos un registr
 ## 🎧 2. Ventanas y Experiencia de Usuario (UI/UX)
 - [x] **Arrastre visual interactivo:** Implementado el salto en la línea de tiempo (seek) con clic derecho sostenido, permitiendo cancelar al salir del área o pulsar Escape.
 - [x] **Unificación de Íconos Nativos:** Los íconos de las ventanas en la barra de tareas y el título principal ahora renderizan emojis como `.png` reales, dándole una apariencia 100% nativa de Windows sin la "X" genérica de Electron.
+- [x] **Panel Lateral Redimensionable:** Implementado un separador interactivo (resizer) para ajustar dinámicamente el ancho del panel izquierdo con restricciones y persistencia local.
 - [ ] **Rediseño del Menú Contextual (Problema Escucha Previa):** Evaluar más adelante la posibilidad de migrar los menús de clic derecho (que actualmente son de HTML) a **Menús Nativos de Windows vía Electron**.
 - [ ] **Precargar ventanas secundarias:** Pre-crear las ventanas más usadas (Librería, Editor de Audio) con `show: false` al arrancar, y mostrarlas al instante cuando el usuario las abra.
 - [ ] **Atajos de teclado globales:** Registrar hotkeys de Windows (Ctrl+F1 = Play/Pause, Ctrl+F2 = Next, etc.) para controlar la radio desde cualquier ventana abierta.
@@ -70,6 +71,7 @@ Este documento es nuestra hoja de ruta compartida. Aquí mantendremos un registr
 - [x] Atajos `Ctrl+C/X/V` nativos integrados para copiado entre playlists manteniendo toda la metadata intacta.
 - [x] Clima Inteligente sin API: `settings.js` ahora maneja autocompletado y obtiene la ubicación asíncrona persistiendo en disco local para lecturas en segundo plano sin bloquear el hilo principal de `render.js`.
 - [x] Eventos automáticos no deben limpiar todas las playlists: Corregido para afectar solo su respectiva área de emisión.
+- [x] **Control Granular de Fade Out:** Separados los ajustes de atenuación de salida para interrupción manual (Siguiente) y detención (Stop), configurables de forma independiente y con actualización en tiempo real en la pista activa.
 - [ ] **Modo Linea/Auxiliar para playlists:** Renombrar en consola las playlists como `Linea/Auxiliar` para rutear salidas exclusivas de audio.
 - [ ] **FX como parte formal del motor:** Documentar el flujo del Master FX (EQ, Compresor) para el nuevo motor Rust.
 - [x] Limpieza de BD de artistas y Cédula de Artista reparadas.
