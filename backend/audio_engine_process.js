@@ -4,12 +4,15 @@ const readline = require('readline');
 
 function resolveRustAudioEnginePath(rootDir) {
     const baseDir = path.resolve(rootDir);
+    // Cross-Platform: en Windows el binario lleva .exe, en Linux no tiene extensión.
+    const ext = process.platform === 'win32' ? '.exe' : '';
     const candidates = [
-        path.join(baseDir, 'audio-engine-rust', 'target', 'release', 'lf-audio-engine.exe'),
-        path.join(baseDir, 'audio-engine-rust', 'target', 'debug', 'lf-audio-engine.exe')
+        path.join(baseDir, 'audio-engine-rust', 'target', 'release', `lf-audio-engine${ext}`),
+        path.join(baseDir, 'audio-engine-rust', 'target', 'debug', `lf-audio-engine${ext}`)
     ];
     return candidates.find(candidate => fs.existsSync(candidate)) || candidates[0];
 }
+
 
 function isBenignRustStderr(message = '') {
     return String(message).includes('Dropping DeviceSink, audio playing through this sink will stop');

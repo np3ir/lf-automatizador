@@ -3395,7 +3395,7 @@ function renderTree(items, container, isRoot = false) {
             if (lowerPath.includes('desktop') || name.toLowerCase() === 'escritorio') { name = 'Escritorio'; icon = '💻'; }
             else if (lowerPath.includes('downloads') || name.toLowerCase() === 'descargas') { name = 'Descargas'; icon = '📥'; }
             else if (lowerPath.includes('music') || name.toLowerCase() === 'música') { name = 'Música'; icon = '🎵'; }
-            else { name = `Disco Local (${itemPath.replace(/\\/g, '')})`; icon = '💿'; }
+            else { name = `Disco Local (${itemPath.replace(/[\\/]/g, '')})`; icon = '💿'; }
         }
         
         if (isDir) { 
@@ -3444,7 +3444,7 @@ function renderTree(items, container, isRoot = false) {
             div.oncontextmenu = (e) => { 
                 e.preventDefault(); e.stopPropagation(); clearSelection(); div.classList.add('selected'); contextMenuTargetFolder = itemPath; 
                 let explicitId = explicitTypesDB[itemPath];
-                if (!explicitId) explicitId = getTrackTypeData(itemPath + '\\dummy.mp3') ? getTrackTypeData(itemPath + '\\dummy.mp3').id : null;
+                if (!explicitId) explicitId = getTrackTypeData(path.join(itemPath, 'dummy.mp3')) ? getTrackTypeData(path.join(itemPath, 'dummy.mp3')).id : null;
                 const isDefault = !explicitId;
                 
                 const typeMenu = document.getElementById('exp-folder-type-list');

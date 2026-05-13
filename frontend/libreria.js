@@ -35,8 +35,8 @@ const defaultLibraryPrefs = {
 
 let workQueueTracks = []; 
 let filteredTracks = []; 
-let defaultPaths = { desktop: 'C:\\', downloads: 'C:\\', music: 'C:\\' }; 
-let systemDrives = ['C:\\']; 
+let defaultPaths = { desktop: path.sep, downloads: path.sep, music: path.sep }; 
+let systemDrives = [process.platform === 'win32' ? 'C:\\' : '/']; 
 
 let isAnalyzing = false; 
 let cancelRequested = false; 
@@ -821,7 +821,7 @@ function buildHomeTree() {
     explorer.appendChild(createTreeNode('Descargas', defaultPaths.downloads, true, '📥'));
     explorer.appendChild(createTreeNode('Música', defaultPaths.music, true, '🎵'));
     const sep = document.createElement('div'); sep.style.margin = '5px 0'; sep.style.borderBottom = '1px solid #333'; explorer.appendChild(sep);
-    systemDrives.forEach(drive => { explorer.appendChild(createTreeNode(`Disco Local (${drive.replace('\\', '')})`, drive, true, '💽')); });
+    systemDrives.forEach(drive => { explorer.appendChild(createTreeNode(`Disco Local (${drive.replace(/[\\\/]/g, '')})`, drive, true, '💽')); });
 }
 
 function createTreeNode(name, itemPath, isDirectory, iconOverride = null) {
