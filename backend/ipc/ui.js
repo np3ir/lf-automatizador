@@ -16,6 +16,20 @@ module.exports = function(context) {
         return db.runMaintenanceVacuum();
     });
 
+    // Cross-Platform: Auditoría de mayúsculas/minúsculas en rutas de archivos.
+    // En Linux, "Bachata.mp3" y "bachata.mp3" son archivos DISTINTOS.
+    // Esta herramienta detecta (y opcionalmente corrige) discrepancias entre la BD y el disco.
+    const { runPathCaseAudit } = require('../path_case_audit');
+    ipcMain.handle('db-maintenance-path-audit', async (e, options = {}) => {
+        if (!db) return { success: false, error: 'BD no conectada.' };
+        try {
+            return runPathCaseAudit(db, { autoFix: options.autoFix === true, writeLog });
+        } catch (err) {
+            writeLog("[PATH AUDIT] Error: " + err.message);
+            return { success: false, error: err.message };
+        }
+    });
+
     ipcMain.handle('audio-engine-rust-status', async () => {
         return context.rustAudioEngine?.status?.() || { available: false, running: false, lastError: 'RustAudio no configurado.' };
     });

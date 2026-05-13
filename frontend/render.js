@@ -1206,7 +1206,7 @@ function clearPlaybackFatalHalt() {
 }
 
 function applyStopAfterVisualState() {
-    const btn = document.getElementById('btn-stop-after-current');
+    const btn = document.getElementById('btn-stop-after');
     if (!btn) return;
     if (stopAfterCurrent) {
         btn.classList.add('active');
@@ -1218,6 +1218,18 @@ function applyStopAfterVisualState() {
         btn.style.borderColor = '';
     }
 }
+
+function toggleStopAfter() {
+    stopAfterCurrent = !stopAfterCurrent;
+    applyStopAfterVisualState();
+    updateNextTrackVisuals();
+}
+
+// Conectar el botón "Pausar Fin" al click
+(function() {
+    const btnStopAfter = document.getElementById('btn-stop-after');
+    if (btnStopAfter) btnStopAfter.addEventListener('click', toggleStopAfter);
+})();
 
 function updateAppTitle(text = '') {
     const base = 'LF Automatizador v0.9.0';
@@ -4695,7 +4707,10 @@ function updateNextTrackVisuals() {
     const allRows = document.querySelectorAll('#playlist-table tr');
     allRows.forEach(row => row.classList.remove('row-next'));
 
-    if (generalPrefs.nextPausada) {
+    if (stopAfterCurrent && currentPlayingRow) {
+        // "Pausar Fin" activo: quitar línea naranja y mostrar mensaje de pausa.
+        if (txtSiguiente) { txtSiguiente.innerText = '⏸ Pausado al finalizar'; txtSiguiente.style.color = '#e74c3c'; }
+    } else if (generalPrefs.nextPausada) {
         if (txtSiguiente) { txtSiguiente.innerText = `${ICON_TEMP_PREFIX}Siguiente pausada temporalmente`; txtSiguiente.style.color = "#e74c3c"; }
     } else {
         if (txtSiguiente) txtSiguiente.style.color = ""; 
@@ -5505,21 +5520,23 @@ function getCrossfadeConfig(typeData, filePath) {
     const mc = filePath ? (manualCuesDB[filePath] || {}) : {};
     const fadein = typeData?.fadeinActive ? (parseFloat(typeData.fadein) || 0)
         : (generalPrefs.chk_mus_fadein ? (parseFloat(generalPrefs.num_mus_fadein) || 0) : 0);
-    const fadeout = typeData?.fadeoutActive ? (parseFloat(typeData.fadeout) || 0)
-        : (generalPrefs.chk_mus_fadeout ? (parseFloat(generalPrefs.num_mus_fadeout) || 0) : 0);
+    const fadeoutStop = typeData?.fadeoutStopActive ? (parseFloat(typeData.fadeoutStop) || 0)
+        : (generalPrefs.chk_mus_fadeout_stop ? (parseFloat(generalPrefs.num_mus_fadeout_stop) || 0) : 0);
+    const fadeoutNext = typeData?.fadeoutNextActive ? (parseFloat(typeData.fadeoutNext) || 0)
+        : (generalPrefs.chk_mus_fadeout_next ? (parseFloat(generalPrefs.num_mus_fadeout_next) || 0) : 0);
     const mixTrigger = typeData?.mixActive ? (parseFloat(typeData.mix) || 0)
         : (generalPrefs.chk_mus_mix ? (parseFloat(generalPrefs.num_mus_mix) || 0) : 0);
-    const mixFadeout = typeData?.mixFadeoutActive ? (parseFloat(typeData.fadeout) || fadeout)
-        : (generalPrefs.chk_mus_mix_fadeout ? (parseFloat(generalPrefs.num_mus_fadeout) || fadeout) : fadeout);
+    const mixFadeout = typeData?.mixFadeoutActive ? (parseFloat(typeData.fadeoutNext) || fadeoutNext)
+        : (generalPrefs.chk_mus_mix_fadeout ? (parseFloat(generalPrefs.num_mus_fadeout_next) || fadeoutNext) : fadeoutNext);
     const ampDb = parseFloat(typeData?.amp) || 0;
     const mixAbsolute = parseFiniteCueValue(mc.mix);
-    return { fadein, fadeout, mixTrigger, mixFadeout, ampDb, mixAbsolute };
+    return { fadein, fadeoutStop, fadeoutNext, mixTrigger, mixFadeout, ampDb, mixAbsolute };
 }
 
 function getFadeOutPlanForTransition(player, trackConfig, isAutoMix, forcedSeconds) {
     if (forcedSeconds > 0) return { seconds: forcedSeconds, scheduleStop: true };
     if (!trackConfig) return { seconds: 0, scheduleStop: false };
-    const fadeSeconds = isAutoMix ? (trackConfig.mixFadeout || trackConfig.fadeout || 0) : (trackConfig.fadeout || 0);
+    const fadeSeconds = isAutoMix ? (trackConfig.mixFadeout || trackConfig.fadeoutNext || 0) : (trackConfig.fadeoutNext || 0);
     if (fadeSeconds <= 0) return { seconds: 0, scheduleStop: false };
     return { seconds: fadeSeconds, scheduleStop: true };
 }
@@ -5704,6 +5721,9 @@ ipcRenderer.on('settings-updated', () => {
     setMonitorVolume(generalPrefs.monitorVolume ?? 100, false);
     updateMonitorVolumeUi();
     applyAudioRouting();
+    if (currentPlayingRow && currentPlayingRow.dataset && currentPlayingRow.dataset.ruta) {
+        currentTrackConfig = getCrossfadeConfig(getTrackTypeData(currentPlayingRow.dataset.ruta), currentPlayingRow.dataset.ruta);
+    }
 });
 
 let lastLeftPeak = 0; let lastRightPeak = 0; let isJinglePlaying = false; 
@@ -5928,7 +5948,13 @@ function advancePlaylistTimeSegment(fromEnded = false) {
         playlistTimeSequence = [];
         playlistTimeDurations = [];
         if (!crossfadeTriggered) {
-            if (generalPrefs.modeRemovePlayed && currentPlayingRow && document.body.contains(currentPlayingRow)) {
+            // Respetar "Pausar Fin" también al terminar locuciones horarias
+            if (stopAfterCurrent) { stopAfterCurrent = false; applyStopAfterVisualState(); stopAll(); return; }
+            if (currentPlayingRow && currentPlayingRow.dataset.temp === 'true') {
+                currentPlayingRow.remove();
+                currentPlayingRow = null;
+                calcularHorasPlaylist();
+            } else if (generalPrefs.modeRemovePlayed && currentPlayingRow && document.body.contains(currentPlayingRow)) {
                 currentPlayingRow.remove();
                 currentPlayingRow = null;
                 calcularHorasPlaylist();
@@ -6793,7 +6819,6 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
             return;
         }
         trackStartTime = new Date(); document.getElementById('txt-cancion').innerText = nombreMostrar; document.getElementById('txt-cancion').style.color = '#ffffff'; 
-        updateAppTitle(nombreMostrar);
         updateMediaSessionStatus(nombreMostrar);
         ipcRenderer.send('update-metadata', nombreMostrar);
         publishRustNowPlaying(nombreMostrar, {
@@ -7035,7 +7060,11 @@ function playNext(isAutoMix = false, forcedFadeOutSeconds = 0) {
 }
 
 function skipToNextTrack() {
-    playNext(false, 0.08);
+    let fade = 0.08;
+    if (typeof currentTrackConfig !== 'undefined' && currentTrackConfig && currentTrackConfig.fadeoutNext > 0) {
+        fade = currentTrackConfig.fadeoutNext;
+    }
+    playNext(false, fade);
 }
 
 function stopAll() {
@@ -7050,6 +7079,9 @@ function stopAll() {
     cancelPendingPlayerStop(playerA);
     cancelPendingPlayerStop(playerB);
     let fadeOutTime = 0;
+    if (typeof currentTrackConfig !== 'undefined' && currentTrackConfig && currentTrackConfig.fadeoutStop > 0) {
+        fadeOutTime = currentTrackConfig.fadeoutStop;
+    }
     if (fadeOutTime > 0) {
         [ {p: playerA, g: gainA}, {p: playerB, g: gainB} ].forEach(({p, g}) => {
             if (!p.paused) {
@@ -8549,3 +8581,46 @@ ipcRenderer.on('remote-cw-move-button', (e, payload) => {
 });
 
 window.addEventListener('blur', hideAllMenus);
+
+// Sidebar Resizer Logic
+function initSidebarResizer() {
+    const sidebar = document.getElementById('left-sidebar');
+    const resizer = document.getElementById('sidebar-resizer');
+    
+    if (sidebar && resizer) {
+        let isResizing = false;
+        
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('resizing');
+            document.body.style.cursor = 'col-resize';
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const newWidth = e.clientX - sidebar.getBoundingClientRect().left;
+            sidebar.style.width = `${newWidth}px`;
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove('resizing');
+                document.body.style.cursor = '';
+                localStorage.setItem('lf-sidebar-width', sidebar.style.width);
+            }
+        });
+        
+        const savedWidth = localStorage.getItem('lf-sidebar-width');
+        if (savedWidth) {
+            sidebar.style.width = savedWidth;
+        }
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSidebarResizer);
+} else {
+    initSidebarResizer();
+}
+

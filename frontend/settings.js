@@ -25,9 +25,9 @@ function saveConfig(filePath, data) {
 }
 
 const defaultFileTypes = [
-    { id: 't_comercial', name: 'Comercial', color: '#ff0000', identifier: 'comercial', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutActive: false, fadeout: 0, mixFadeoutActive: false },
-    { id: 't_time', name: 'Locución horaria', color: '#2ecc71', identifier: 'saytime', searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutActive: false, fadeout: 0, mixFadeoutActive: false },
-    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: false, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutActive: false, fadeout: 0, mixFadeoutActive: false }
+    { id: 't_comercial', name: 'Comercial', color: '#ff0000', identifier: 'comercial', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutStopActive: false, fadeoutStop: 0, fadeoutNextActive: false, fadeoutNext: 0, mixFadeoutActive: false },
+    { id: 't_time', name: 'Locución horaria', color: '#2ecc71', identifier: 'saytime', searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutStopActive: false, fadeoutStop: 0, fadeoutNextActive: false, fadeoutNext: 0, mixFadeoutActive: false },
+    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: false, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutStopActive: false, fadeoutStop: 0, fadeoutNextActive: false, fadeoutNext: 0, mixFadeoutActive: false }
 ];
 
 let fileTypesData = loadConfig(fileTypesPath, defaultFileTypes).map(typeData => {
@@ -41,8 +41,8 @@ let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, {
     outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default',
     monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default',
     playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'webAudio',
-    chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false,
-    num_mus_fadein: 0, num_mus_fadeout: 0, num_mus_mix: 0, num_mus_mix_db: -14
+    chk_mus_fadein: false, chk_mus_fadeout_stop: false, chk_mus_fadeout_next: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false,
+    num_mus_fadein: 0, num_mus_fadeout_stop: 0, num_mus_fadeout_next: 0, num_mus_mix: 0, num_mus_mix_db: -14
 }));
 delete generalPrefs.num_mus_mix_fadeout;
 
@@ -104,7 +104,8 @@ function loadExceptionFades(id) {
     if (id === 'default') {
         source = {
             fadeinActive: generalPrefs.chk_mus_fadein, fadein: generalPrefs.num_mus_fadein,
-            fadeoutActive: generalPrefs.chk_mus_fadeout, fadeout: generalPrefs.num_mus_fadeout,
+            fadeoutStopActive: generalPrefs.chk_mus_fadeout_stop, fadeoutStop: generalPrefs.num_mus_fadeout_stop,
+            fadeoutNextActive: generalPrefs.chk_mus_fadeout_next, fadeoutNext: generalPrefs.num_mus_fadeout_next,
             mixActive: generalPrefs.chk_mus_mix, mix: generalPrefs.num_mus_mix,
             mixDbActive: generalPrefs.chk_mus_mix_db, mixDb: generalPrefs.num_mus_mix_db,
             mixFadeoutActive: generalPrefs.chk_mus_mix_fadeout
@@ -114,8 +115,10 @@ function loadExceptionFades(id) {
     }
     document.getElementById('chk-fadein').checked = source.fadeinActive || false;
     document.getElementById('num-fadein').value = source.fadein || 0;
-    document.getElementById('chk-fadeout').checked = source.fadeoutActive || false;
-    document.getElementById('num-fadeout').value = source.fadeout || 0;
+    document.getElementById('chk-fadeout-stop').checked = source.fadeoutStopActive || false;
+    document.getElementById('num-fadeout-stop').value = source.fadeoutStop || 0;
+    document.getElementById('chk-fadeout-next').checked = source.fadeoutNextActive || false;
+    document.getElementById('num-fadeout-next').value = source.fadeoutNext || 0;
     document.getElementById('chk-mix').checked = source.mixActive || false;
     document.getElementById('num-mix').value = source.mix || 0;
     document.getElementById('chk-mix-db').checked = source.mixDbActive || false;
@@ -137,8 +140,10 @@ function saveCurrentTypeState() {
             t.voice = document.getElementById('type-voice').checked;
             t.fadeinActive = document.getElementById('chk-fadein').checked;
             t.fadein = parseFloat(document.getElementById('num-fadein').value) || 0;
-            t.fadeoutActive = document.getElementById('chk-fadeout').checked;
-            t.fadeout = parseFloat(document.getElementById('num-fadeout').value) || 0;
+            t.fadeoutStopActive = document.getElementById('chk-fadeout-stop').checked;
+            t.fadeoutStop = parseFloat(document.getElementById('num-fadeout-stop').value) || 0;
+            t.fadeoutNextActive = document.getElementById('chk-fadeout-next').checked;
+            t.fadeoutNext = parseFloat(document.getElementById('num-fadeout-next').value) || 0;
             t.mixActive = document.getElementById('chk-mix').checked;
             t.mix = parseFloat(document.getElementById('num-mix').value) || 0;
             t.mixDbActive = document.getElementById('chk-mix-db').checked;
@@ -149,8 +154,10 @@ function saveCurrentTypeState() {
     } else {
         generalPrefs.chk_mus_fadein = document.getElementById('chk-fadein').checked;
         generalPrefs.num_mus_fadein = parseFloat(document.getElementById('num-fadein').value) || 0;
-        generalPrefs.chk_mus_fadeout = document.getElementById('chk-fadeout').checked;
-        generalPrefs.num_mus_fadeout = parseFloat(document.getElementById('num-fadeout').value) || 0;
+        generalPrefs.chk_mus_fadeout_stop = document.getElementById('chk-fadeout-stop').checked;
+        generalPrefs.num_mus_fadeout_stop = parseFloat(document.getElementById('num-fadeout-stop').value) || 0;
+        generalPrefs.chk_mus_fadeout_next = document.getElementById('chk-fadeout-next').checked;
+        generalPrefs.num_mus_fadeout_next = parseFloat(document.getElementById('num-fadeout-next').value) || 0;
         generalPrefs.chk_mus_mix = document.getElementById('chk-mix').checked;
         generalPrefs.num_mus_mix = parseFloat(document.getElementById('num-mix').value) || 0;
         generalPrefs.chk_mus_mix_db = document.getElementById('chk-mix-db').checked;
@@ -171,7 +178,7 @@ document.getElementById('btn-add-type').addEventListener('click', () => {
     const newId = 't_' + Date.now();
     fileTypesData.push({
         id: newId, name: 'Nuevo Tipo', color: '#ffffff', identifier: 'nuevo', searchIn: 'all', amp: 0, report: false, voice: false, readonly: false,
-        fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutActive: false, fadeout: 0, mixFadeoutActive: false
+        fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutStopActive: false, fadeoutStop: 0, fadeoutNextActive: false, fadeoutNext: 0, mixFadeoutActive: false
     });
     currentSelectedTypeId = newId; renderLists(); loadTypeDetails(newId); loadExceptionFades(newId);
 });

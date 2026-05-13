@@ -88,7 +88,7 @@ Esta sección define la hoja de ruta para lograr que el Automatizador funcione e
 - [x] **Scripts de Arranque:** Creado `iniciar.sh` para Linux con verificación de dependencias y ruta relativa automática. También se corrigió `Iniciar_Automatizador.bat` reemplazando la ruta absoluta `C:\LF Automatizador v1.0` por `%~dp0` (directorio del .bat), haciéndolo portable.
 
 ### 🟡 Nivel 2: Cuidado con el Sistema Operativo (Case Sensitivity)
-- [ ] **Auditoría de Mayúsculas/Minúsculas:** Linux distingue entre `Archivo.mp3` y `archivo.mp3`. Programar una validación o script de mantenimiento que asegure que los registros de la base de datos SQLite coinciden **exactamente** en mayúsculas y minúsculas con los nombres físicos en el disco duro.
+- [x] **Auditoría de Mayúsculas/Minúsculas:** Implementado. Se creó `backend/path_case_audit.js` (módulo de auditoría) y se conectó via IPC en `backend/ipc/ui.js` como `db-maintenance-path-audit`. Funciona en dos modos: **diagnóstico** (por defecto, solo reporta sin tocar nada) y **reparación** (con `autoFix: true`, corrige los registros en la BD para que coincidan con el casing real del disco). En Windows no modifica nada porque el SO ya ignora mayúsculas; en Linux corrige rutas tipo `Bachata.mp3` → `bachata.mp3` automáticamente. Actualiza `tracks`, `track_artist_links` y `track_genre_links` en una transacción atómica.
 
 ### 🔴 Nivel 3: El Motor y Empaquetado (Hacer cuando el motor Rust esté listo)
 - [ ] **Eliminación Total de Web Audio API:** Confirmar que el motor JavaScript haya sido erradicado antes de intentar compilar para Linux, evitando arrastrar código híbrido.

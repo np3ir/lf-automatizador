@@ -36,10 +36,14 @@
                     </fieldset>
 
                     <fieldset class="fieldset-dark" style="flex: 1;">
-                        <legend>Salida (Fade Out)</legend>
+                        <legend>Salida (Fade Out) Manual</legend>
                         <div class="setting-row">
-                            <label><input type="checkbox" id="chk-fadeout"> Activar</label>
-                            <input type="number" id="num-fadeout" class="dark-number" step="0.1" min="0" value="0"> seg
+                            <label title="Fade Out al detener (STOP)"><input type="checkbox" id="chk-fadeout-stop"> Al Stop</label>
+                            <input type="number" id="num-fadeout-stop" class="dark-number" step="0.1" min="0" value="0"> seg
+                        </div>
+                        <div class="setting-row" style="margin-top: 10px;">
+                            <label title="Fade Out al avanzar manualmente (NEXT)"><input type="checkbox" id="chk-fadeout-next"> Al Siguiente</label>
+                            <input type="number" id="num-fadeout-next" class="dark-number" step="0.1" min="0" value="0"> seg
                         </div>
                     </fieldset>
                 </div>
