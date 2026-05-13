@@ -1,1 +1,0 @@
-const fs = require('fs'); const path = require('path'); fs.copyFileSync(path.join(process.env.USERPROFILE, '.gemini/antigravity/brain/69a4b406-bb08-4b4a-b522-dc5f719dfa6b/scratch/index_backup.html'), 'c:/LF Automatizador v1.0/frontend/index.html');

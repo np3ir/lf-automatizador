@@ -83,8 +83,8 @@ Esta sección define la hoja de ruta para lograr que el Automatizador funcione e
 > NO se crearán carpetas separadas. Se usará exactamente el mismo código base para ambos sistemas. Cuando un proceso sea diferente según el sistema operativo (ej. invocar un motor `.exe` vs un binario de Linux), se debe utilizar un condicional (`if (process.platform === 'win32') { ... } else if (process.platform === 'linux') { ... }`). La compatibilidad con Linux se **suma** al código actual de Windows, no lo reemplaza.
 
 ### 🟢 Nivel 1: Cambios Seguros (Hacer ahora desde Windows)
-- [ ] **Estandarizar Rutas de Archivos:** Buscar concatenaciones manuales de directorios (ej. `carpeta + '\\' + archivo`) y reemplazarlas en todo el código por la función nativa `path.join(carpeta, archivo)`. Esto garantiza que las barras (`\` vs `/`) se adapten automáticamente al sistema operativo.
-- [ ] **Rutas de Datos de Usuario:** Asegurarse de que toda lectura/escritura de bases de datos o configuraciones use `app.getPath('userData')` de Electron, evitando referencias absolutas a discos (`C:\`).
+- [x] **Estandarizar Rutas de Archivos:** Corregido. Se eliminaron barras invertidas hardcodeadas (`\\`) en `render.js` (explorador de archivos), `libreria.js` (defaults de drives y labels) y `audio_engine_process.js` (resolución multiplataforma del binario Rust con `.exe` para Windows y sin extensión para Linux). Ahora se usa `path.join()`, `path.sep` y `process.platform` donde es necesario.
+- [x] **Rutas de Datos de Usuario:** Auditado. Todas las rutas de BD y configuración ya usan `path.join(__dirname, 'config')` (relativas al ejecutable), lo cual es portable por naturaleza entre Windows y Linux. No se encontraron referencias absolutas a discos. Se eliminó `frontend/restore.js` (script temporal de depuración con rutas absolutas hardcodeadas que no formaba parte del programa).
 - [ ] **Scripts de Arranque:** Crear un archivo `iniciar.sh` equivalente a `Iniciar_Automatizador.bat` para facilitar pruebas en Linux.
 
 ### 🟡 Nivel 2: Cuidado con el Sistema Operativo (Case Sensitivity)
