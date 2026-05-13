@@ -147,22 +147,52 @@ window.addEventListener('mousemove', (e) => {
     }
 });
 
+// Bug 1 fix: mouseup global con reset robusto
 window.addEventListener('mouseup', (e) => {
     if (!isMouseDown) return;
-    if (Math.abs(e.clientX - initX) <= 3) {
+    const dx = e.clientX - initX;
+    // Bug 2 fix: clic para saltar - sincronizar cursor visual + audio
+    if (Math.abs(dx) <= 3) {
         const rect = viewport.getBoundingClientRect();
-        playCursorTime = viewStartTime + ((e.clientX - rect.left) / pixelsPerSecond);
-        if (isPlaying) { togglePlay(); togglePlay(); }
+        const x = Math.max(0, e.clientX - rect.left);
+        playCursorTime = viewStartTime + (x / pixelsPerSecond);
         updateCursorVisual();
+        if (isPlaying) {
+            togglePlay(); // stop
+            togglePlay(); // play desde nueva posición
+        }
     }
     isMouseDown = false; dragTarg = null;
 });
 
+// Bug 1 fix: mouseleave en viewport para soltar el drag
+viewport.addEventListener('mouseleave', () => {
+    if (dragTarg) {
+        dragTarg = null;
+    }
+});
+
+// Bug 1 fix: blur como respaldo final
+window.addEventListener('blur', () => {
+    isMouseDown = false;
+    dragTarg = null;
+});
+
 scrollSlider.addEventListener('input', (e) => { viewStartTime = parseFloat(e.target.value); drawAll(); });
 
+// Bug 4 fix: función para actualizar el estado visual del botón Play
+function updatePlayBtnVisual() {
+    const btn = document.getElementById('btn-play-pause');
+    if (btn) btn.innerText = isPlaying ? '⏸' : '▶';
+}
+
 function togglePlay() {
-    if (isPlaying) { [sourceA, sourceJ, sourceB].forEach(s => { if(s){ s.stop(); s.disconnect(); } }); cancelAnimationFrame(animFrameId); isPlaying = false; }
-    else {
+    if (isPlaying) {
+        [sourceA, sourceJ, sourceB].forEach(s => { if(s){ try { s.stop(); } catch(e){} s.disconnect(); } });
+        sourceA = null; sourceJ = null; sourceB = null;
+        cancelAnimationFrame(animFrameId);
+        isPlaying = false;
+    } else {
         if (audioCtx.state === 'suspended') {
             audioCtx.resume().catch(() => {});
         }
@@ -176,20 +206,76 @@ function togglePlay() {
         let offB = playCursorTime - mixPointB_Abs; if (offB >= 0 && offB < bufferB.duration) sourceB.start(0, offB); else if (offB < 0) sourceB.start(audioCtx.currentTime + Math.abs(offB), 0);
         isPlaying = true; animLoop();
     }
+    updatePlayBtnVisual();
 }
 
 function animLoop() {
     if (!isPlaying) return;
     playCursorTime += (audioCtx.currentTime - playStartTimeAbs); playStartTimeAbs = audioCtx.currentTime;
     updateCursorVisual();
+    // Bug 3 fix: auto-scroll más suave cuando el cursor alcanza el 80% del viewport
+    const cursorPx = (playCursorTime - viewStartTime) * pixelsPerSecond;
+    if (cursorPx > viewportWidth * 0.8) {
+        viewStartTime += (viewportWidth * 0.5) / pixelsPerSecond;
+        scrollSlider.value = viewStartTime;
+        drawAll();
+    }
     if (playCursorTime > Math.max(0, mixPointB_Abs + bufferB.duration)) { togglePlay(); return; }
     animFrameId = requestAnimationFrame(animLoop);
 }
 
-document.getElementById('btn-play-pause').addEventListener('click', togglePlay);
+// Bug 4 fix: vincular el botón Play con addEventListener explícito
+const btnPlayPause = document.getElementById('btn-play-pause');
+if (btnPlayPause) {
+    btnPlayPause.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        togglePlay();
+    });
+}
 window.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); togglePlay(); } });
-document.getElementById('btn-zoom-in').addEventListener('click', () => { pixelsPerSecond += 10; handleResize(); });
-document.getElementById('btn-zoom-out').addEventListener('click', () => { pixelsPerSecond = Math.max(10, pixelsPerSecond - 10); handleResize(); });
+
+// === ZOOM INTELIGENTE ===
+const zoomSlider = document.getElementById('zoom-slider');
+
+// Zoom centrado en un punto temporal (slider → centra en el playhead)
+function applyZoomOnTime(newPPS, centerTime) {
+    pixelsPerSecond = Math.max(10, Math.min(150, newPPS));
+    if (zoomSlider) zoomSlider.value = pixelsPerSecond;
+    viewStartTime = centerTime - (viewportWidth / 2) / pixelsPerSecond;
+    if (scrollSlider) scrollSlider.value = viewStartTime;
+    handleResize();
+}
+
+// Zoom centrado en una posición X del viewport (Ctrl+Rueda → centra en el mouse)
+function applyZoomOnPixel(newPPS, viewportX) {
+    const timeAtPixel = viewStartTime + viewportX / pixelsPerSecond;
+    pixelsPerSecond = Math.max(10, Math.min(150, newPPS));
+    if (zoomSlider) zoomSlider.value = pixelsPerSecond;
+    viewStartTime = timeAtPixel - viewportX / pixelsPerSecond;
+    if (scrollSlider) scrollSlider.value = viewStartTime;
+    handleResize();
+}
+
+// Ctrl+Rueda: zoom centrado en la posición del mouse
+viewport.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.shiftKey) {
+        e.preventDefault();
+        const rect = viewport.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const step = 10;
+        const newPPS = e.deltaY < 0 ? pixelsPerSecond + step : pixelsPerSecond - step;
+        applyZoomOnPixel(newPPS, mouseX);
+    }
+}, { passive: false });
+
+// Slider: zoom centrado en el playhead (línea roja)
+if (zoomSlider) {
+    zoomSlider.addEventListener('input', (e) => {
+        applyZoomOnTime(parseFloat(e.target.value), playCursorTime);
+    });
+}
+
 document.getElementById('btn-cancel').addEventListener('click', () => window.close());
 document.getElementById('btn-save').addEventListener('click', () => {
     ipcRenderer.send('save-jingle-transition', { trackA: trackData.trackA, jingle: trackData.jingle, mixPointA: (bufferA.duration + mixPointA).toFixed(3), mixPointJ: (mixPointB_Abs - mixPointA).toFixed(3) });

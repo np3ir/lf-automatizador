@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const url = require('url'); 
 const { ipcRenderer } = require('electron');
@@ -693,13 +693,33 @@ if(btnNext) { btnNext.addEventListener('click', async () => { await saveCuesSile
 window.setCue = function(type) { let t = isPlaying ? (audioCtx.currentTime - startTime) : pauseTime; const el = document.getElementById(`cue-${type}`); if(el) el.value = t.toFixed(2); refreshOverlay(); };
 window.clearCue = function(type) { const el = document.getElementById(`cue-${type}`); if(el) el.value = '0.00'; refreshOverlay(); };
 window.playFrom = function(type) { const cueInput = document.getElementById(`cue-${type}`); if (cueInput) { const timeVal = parseFloat(cueInput.value); if (!isNaN(timeVal)) playAudio(timeVal, true); } };
-window.togglePlay = async function() { if (isPlaying) stopAudio(true); else await playAudio(pauseTime, true); };
+window.togglePlay = async function() {
+    try {
+        if (isPlaying) {
+            stopAudio(true);
+        } else {
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            await playAudio(pauseTime, true);
+        }
+    } catch (err) {
+        console.error('[AudioEditor] togglePlay error:', err);
+    }
+    updatePlayButtonVisual();
+};
+
+function updatePlayButtonVisual() {
+    const btn = document.getElementById('btn-master-play');
+    if (!btn) return;
+    btn.innerText = isPlaying ? '⏸ Pausa' : '▶ Play';
+}
+
 window.stopAudio = function(isPause = false) {
     if (sourceNode) { sourceNode.onended = null; try { sourceNode.stop(); } catch(e) {} sourceNode.disconnect(); sourceNode = null; }
     if (isPause) pauseTime = audioCtx.currentTime - startTime;
     else { pauseTime = 0; if(aeCursorElement) aeCursorElement.style.left = '0px'; if(timeText) timeText.innerText = "00:00.000"; }
     isPlaying = false;
     stopCursorLoop();
+    updatePlayButtonVisual();
 };
 
 async function playAudio(startAt, forcePlay = false) {
@@ -721,6 +741,7 @@ async function playAudio(startAt, forcePlay = false) {
         sourceNode.onended = () => { if (isPlaying) stopAudio(); };
         syncCursorPosition(startAt);
         startCursorLoop();
+        updatePlayButtonVisual();
     } else {
         syncCursorPosition(pauseTime);
     }
@@ -734,39 +755,32 @@ if (container) {
         if (!ignoreScrollSync) markManualNavigation();
         updateScrollGuide();
     }, { passive: true });
+    // Bug 1 fix: mouseleave como respaldo para soltar el drag si el cursor sale del contenedor
+    container.addEventListener('mouseleave', () => {
+        if (isDraggingWave) {
+            isDraggingWave = false;
+            setWaveCursor('crosshair');
+        }
+    });
 }
 
 if (zoomSlider) {
+    // Slider: zoom centrado en el playhead (línea roja)
     zoomSlider.addEventListener('input', (e) => {
         let currentSeconds = isPlaying ? (audioCtx.currentTime - startTime) : pauseTime;
-        const cursorWasVisible = isCursorVisibleInViewport(getCursorPixel(currentSeconds), 2);
-        const hadAutoFollow = autoScrollEnabled;
-        const prevMaxScrollLeft = getMaxScrollLeft();
-        const prevScrollRatio = prevMaxScrollLeft > 0 ? (container.scrollLeft / prevMaxScrollLeft) : 0;
 
         zoomLevel = parseFloat(e.target.value);
         drawWaveform();
 
         if (currentDuration > 0) {
             syncCursorPosition(currentSeconds);
-            if (hadAutoFollow) {
-                autoScrollEnabled = true;
-                const px = getCursorPixel(currentSeconds);
-                if (px > (container.scrollLeft + (container.clientWidth / 2))) {
-                    setContainerScrollLeft(px - (container.clientWidth / 2));
-                }
-            } else if (cursorWasVisible) {
-                autoScrollEnabled = true;
-            } else {
-                markManualNavigation();
-                setContainerScrollLeft(prevScrollRatio * getMaxScrollLeft());
-            }
+            // Centrar siempre en el playhead
+            autoScrollEnabled = true;
+            const px = getCursorPixel(currentSeconds);
+            setContainerScrollLeft(px - (container.clientWidth / 2));
         }
     });
 }
-
-window.zoomIn = function() { if(!zoomSlider) return; zoomLevel = Math.min(zoomLevel + 3, 30); zoomSlider.value = zoomLevel; zoomSlider.dispatchEvent(new Event('input')); };
-window.zoomOut = function() { if(!zoomSlider) return; zoomLevel = Math.max(zoomLevel - 3, 1); zoomSlider.value = zoomLevel; zoomSlider.dispatchEvent(new Event('input')); };
 
 function drawWaveform() {
     if (!audioBuffer || !waveformPeaks || !container || !canvas || !innerWrapper || !ctx) return;
@@ -840,7 +854,42 @@ if (innerWrapper) {
         if (draggedMarkerId) { isDraggingMarker = true; setWaveCursor('ew-resize'); } 
         else { isDraggingWave = true; dragStartX = e.clientX; scrollStartX = container.scrollLeft; setWaveCursor('grabbing'); markManualNavigation(); }
     });
-    innerWrapper.addEventListener('wheel', (e) => { if (!audioBuffer) return; if (e.ctrlKey || e.shiftKey) { e.preventDefault(); if (e.deltaY < 0) zoomIn(); else zoomOut(); } });
+    // Ctrl+Rueda: zoom centrado en la posición del mouse
+    innerWrapper.addEventListener('wheel', (e) => {
+        if (!audioBuffer) return;
+        if (e.ctrlKey || e.shiftKey) {
+            e.preventDefault();
+            const containerRect = container.getBoundingClientRect();
+            const mouseContainerX = e.clientX - containerRect.left;
+            // Tiempo en la posición del mouse antes del zoom
+            const canvasX = container.scrollLeft + mouseContainerX;
+            const timeAtMouse = currentDuration > 0 ? (canvasX / canvas.width) * currentDuration : 0;
+            // Cambiar zoom
+            const step = 1;
+            zoomLevel = e.deltaY < 0 ? Math.min(zoomLevel + step, 30) : Math.max(zoomLevel - step, 1);
+            if (zoomSlider) zoomSlider.value = zoomLevel;
+            // Redibujar con nuevo zoom
+            drawWaveform();
+            if (currentDuration > 0) {
+                // Calcular nueva posición del pixel para el tiempo que estaba bajo el mouse
+                const newCanvasX = (timeAtMouse / currentDuration) * canvas.width;
+                markManualNavigation();
+                setContainerScrollLeft(newCanvasX - mouseContainerX);
+                syncCursorPosition();
+            }
+        }
+    });
+    // Bug 1 fix: mouseleave en el wrapper interno también
+    innerWrapper.addEventListener('mouseleave', () => {
+        if (isDraggingMarker) {
+            // No soltar marcador en mouseleave - solo en mouseup (puede necesitar arrastrar fuera)
+        }
+        // El drag de onda sí se suelta si el cursor sale
+        if (isDraggingWave) {
+            isDraggingWave = false;
+            setWaveCursor('crosshair');
+        }
+    });
 }
 
 
@@ -853,14 +902,41 @@ window.addEventListener('mousemove', (e) => {
     } else if (isDraggingWave && container) { const deltaX = e.clientX - dragStartX; container.scrollLeft = scrollStartX - deltaX; }
 });
 
+// Bug 1+2 fix: mouseup global con reset robusto de todos los estados de drag
 window.addEventListener('mouseup', (e) => {
-    if (isDraggingMarker) { isDraggingMarker = false; draggedMarkerId = null; setWaveCursor('crosshair'); } 
-    else if (isDraggingWave) {
-        isDraggingWave = false; setWaveCursor('crosshair');
-        if (Math.abs(e.clientX - dragStartX) < 5 && innerWrapper) {
-            autoScrollEnabled = true; const rect = innerWrapper.getBoundingClientRect(); const x = e.clientX - rect.left;
-            const targetTime = (x / canvas.width) * currentDuration; playAudio(targetTime);
+    if (isDraggingMarker) {
+        isDraggingMarker = false;
+        draggedMarkerId = null;
+        setWaveCursor('crosshair');
+        refreshOverlay();
+    } else if (isDraggingWave) {
+        const wasDrag = Math.abs(e.clientX - dragStartX) >= 5;
+        isDraggingWave = false;
+        setWaveCursor('crosshair');
+        // Bug 2 fix: si fue un clic (no un drag real), saltar a esa posición
+        if (!wasDrag && innerWrapper && canvas && currentDuration > 0) {
+            autoScrollEnabled = true;
+            const rect = innerWrapper.getBoundingClientRect();
+            const x = clamp(e.clientX - rect.left, 0, canvas.width);
+            const targetTime = clamp((x / canvas.width) * currentDuration, 0, currentDuration);
+            // Siempre sincronizar visual + audio juntos
+            pauseTime = targetTime;
+            syncCursorPosition(targetTime);
+            playAudio(targetTime, true);
         }
+    }
+});
+
+// Bug 1 fix: blur en window como último respaldo — si la ventana pierde foco, soltar todo
+window.addEventListener('blur', () => {
+    if (isDraggingMarker) {
+        isDraggingMarker = false;
+        draggedMarkerId = null;
+        setWaveCursor('crosshair');
+    }
+    if (isDraggingWave) {
+        isDraggingWave = false;
+        setWaveCursor('crosshair');
     }
 });
 
@@ -868,7 +944,19 @@ window.addEventListener('resize', () => { if(audioBuffer) drawWaveform(); });
 window.browsePisador = function(id) { const input = document.createElement('input'); input.type = 'file'; input.accept = 'audio/*'; input.onchange = e => { if(e.target.files.length > 0) document.getElementById(`file-${id}`).value = e.target.files[0].path; }; input.click(); };
 window.addEventListener('keydown', (e) => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return; if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); togglePlay(); } });
 
-// Reanudar/pausar actualizaciÃ³n del cursor segÃºn visibilidad.
+// Bug 4 fix: vincular el botón Play explícitamente con addEventListener
+const btnMasterPlay = document.getElementById('btn-master-play');
+if (btnMasterPlay) {
+    // Remover el onclick inline para evitar doble disparo
+    btnMasterPlay.removeAttribute('onclick');
+    btnMasterPlay.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await togglePlay();
+    });
+}
+
+// Reanudar/pausar actualización del cursor según visibilidad.
 document.addEventListener('visibilitychange', () => { 
     if (isEditorActiveForCursorUpdates()) startCursorLoop();
     else stopCursorLoop();
