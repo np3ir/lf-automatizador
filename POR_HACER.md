@@ -85,7 +85,7 @@ Esta sección define la hoja de ruta para lograr que el Automatizador funcione e
 ### 🟢 Nivel 1: Cambios Seguros (Hacer ahora desde Windows)
 - [x] **Estandarizar Rutas de Archivos:** Corregido. Se eliminaron barras invertidas hardcodeadas (`\\`) en `render.js` (explorador de archivos), `libreria.js` (defaults de drives y labels) y `audio_engine_process.js` (resolución multiplataforma del binario Rust con `.exe` para Windows y sin extensión para Linux). Ahora se usa `path.join()`, `path.sep` y `process.platform` donde es necesario.
 - [x] **Rutas de Datos de Usuario:** Auditado. Todas las rutas de BD y configuración ya usan `path.join(__dirname, 'config')` (relativas al ejecutable), lo cual es portable por naturaleza entre Windows y Linux. No se encontraron referencias absolutas a discos. Se eliminó `frontend/restore.js` (script temporal de depuración con rutas absolutas hardcodeadas que no formaba parte del programa).
-- [ ] **Scripts de Arranque:** Crear un archivo `iniciar.sh` equivalente a `Iniciar_Automatizador.bat` para facilitar pruebas en Linux.
+- [x] **Scripts de Arranque:** Creado `iniciar.sh` para Linux con verificación de dependencias y ruta relativa automática. También se corrigió `Iniciar_Automatizador.bat` reemplazando la ruta absoluta `C:\LF Automatizador v1.0` por `%~dp0` (directorio del .bat), haciéndolo portable.
 
 ### 🟡 Nivel 2: Cuidado con el Sistema Operativo (Case Sensitivity)
 - [ ] **Auditoría de Mayúsculas/Minúsculas:** Linux distingue entre `Archivo.mp3` y `archivo.mp3`. Programar una validación o script de mantenimiento que asegure que los registros de la base de datos SQLite coinciden **exactamente** en mayúsculas y minúsculas con los nombres físicos en el disco duro.
