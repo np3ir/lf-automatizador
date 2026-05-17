@@ -395,6 +395,24 @@
                     </label>
                 </div>
 
+                <div style="margin-bottom: 14px;">
+                    <span class="config-title" style="display:block; margin-bottom: 8px; color:#00a8ff;">Motor de analisis:</span>
+                    <label class="config-row" style="margin-bottom: 5px; padding: 2px;">
+                        <input type="radio" name="analysis_engine" id="analysis-engine-rust" value="rustAudio" checked class="config-input">
+                        <div class="config-texts">
+                            <span class="config-title" style="font-weight: normal;">Motor Rust</span>
+                            <span class="config-desc">Usa el motor nativo para procesar la cola masiva.</span>
+                        </div>
+                    </label>
+                    <label class="config-row" style="margin-bottom: 0; padding: 2px;">
+                        <input type="radio" name="analysis_engine" id="analysis-engine-ffmpeg" value="ffmpeg" class="config-input">
+                        <div class="config-texts">
+                            <span class="config-title" style="font-weight: normal;">FFmpeg</span>
+                            <span class="config-desc">Mantiene el analizador anterior para comparar resultados.</span>
+                        </div>
+                    </label>
+                </div>
+
                 <label class="config-row">
                     <input type="checkbox" id="chk-task-gain" class="config-input task-check" checked onchange="updateMasterCheck()">
                     <div class="config-texts">

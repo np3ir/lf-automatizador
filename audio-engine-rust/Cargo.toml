@@ -1,8 +1,20 @@
 [package]
 name = "lf-audio-engine"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
 cpal = "0.17.3"
 rodio = "0.22.2"
+# libc se usa para leer la hora local (libc::time + libc::localtime) sin
+# arrastrar chrono. Cross-platform Windows/Linux. Llamadas hechas solo desde
+# el thread de despacho (libc::localtime no es thread-safe pero no compite).
+libc = "0.2"
+# FASE D — Bus FX intermedio. `rtrb` provee ring buffers SPSC lock-free para
+# los Tap Points (Pre-FX / Post-FX) sin contender el hilo de audio. Productor
+# único = thread de audio Rust; consumidor único = handler IPC (encoder/monitor).
+rtrb = "0.3"
+# FASE D · sub-paso 8.2 — `base64` codifica los chunks PCM s16le del bus
+# encoder para mandarlos al lado JS por el canal stdout JSON. ~30% overhead
+# pero evita necesidad de pipe binario adicional y mantiene un único canal.
+base64 = "0.22"

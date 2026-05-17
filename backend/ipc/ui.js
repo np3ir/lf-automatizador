@@ -36,7 +36,21 @@ module.exports = function(context) {
 
     ipcMain.handle('audio-engine-rust-command', async (event, command = {}) => {
         if (!context.rustAudioEngine?.command) return { success: false, error: 'RustAudio no configurado.' };
+        // _timeoutMs es un campo interno de JS; el probe lo extrae antes de enviar al proceso Rust.
         return context.rustAudioEngine.command(command);
+    });
+
+    // Devuelve la carpeta de caché de peaks. Creada automáticamente si no existe.
+    // Valor por defecto: <raíz del programa>/cache/peaks/
+    // TODO futuro: permitir al usuario elegir la carpeta desde Configuración.
+    ipcMain.handle('get-cache-dir', async () => {
+        try {
+            const cacheDir = path.join(path.resolve(__dirname, '..', '..'), 'cache', 'peaks');
+            if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+            return { success: true, cacheDir };
+        } catch (err) {
+            return { success: false, cacheDir: '', error: err.message || String(err) };
+        }
     });
 
     ipcMain.handle('audio-engine-report-tail', async (event, maxLines = 30) => {
@@ -144,12 +158,61 @@ module.exports = function(context) {
         context.consoleWindow.on('closed', () => { context.consoleWindow = null; });
     });
 
+    // ─── Bloqueo de amplitudes Web Audio en la consola virtual ─────────────
+    // La consola es exclusiva del motor Rust. Cuando el motor está corriendo,
+    // las amplitudes que llegan de WebAudio se descartan: sólo dejamos pasar
+    // el bloque de diagnósticos. Cada intento se registra una vez cada 30 s
+    // por origen en `audio_engine_report.jsonl` para detectar qué editor o
+    // proceso sigue mandando datos WebAudio aunque ya no deba.
+    const __WEBAUDIO_REJECT_THROTTLE_MS = 30000;
+    const __webAudioRejectLog = new Map();
+    function __logWebAudioReject(origin) {
+        if (!origin) origin = 'unknown';
+        const now = Date.now();
+        const last = __webAudioRejectLog.get(origin) || 0;
+        if (now - last < __WEBAUDIO_REJECT_THROTTLE_MS) return;
+        __webAudioRejectLog.set(origin, now);
+        try {
+            if (context.rustAudioEngine?.logEvent) {
+                context.rustAudioEngine.logEvent('webaudio-rejected', { origin, channel: 'vu-levels' });
+            }
+        } catch (err) {}
+    }
+    function __isRustRunning() {
+        try { return context.rustAudioEngine?.status?.()?.running === true; }
+        catch (err) { return false; }
+    }
+    function __stripWebAudioAmplitude(levels = {}) {
+        // Mantiene diagnósticos y meters Rust; pisa todo lo demás con ceros.
+        return {
+            ...levels,
+            pgm: 0,
+            monitor: 0,
+            cue: 0,
+            jingle: 0,
+            cartwall: 0,
+            playlists: Array.isArray(levels.playlists) ? levels.playlists.map(() => 0) : [],
+            dbs: {},
+            stereo: {},
+            stereoDbs: {}
+        };
+    }
+
     ipcMain.on('vu-levels', (e, levels) => {
+        if (__isRustRunning()) {
+            __logWebAudioReject('renderer.vu-levels');
+            broadcastVuLevels(__stripWebAudioAmplitude(levels || {}));
+            return;
+        }
         broadcastVuLevels(levels);
     });
 
     ipcMain.on('aux-vu-levels', (e, payload) => {
         if (!payload || !payload.source) return;
+        if (__isRustRunning()) {
+            __logWebAudioReject(`editor.${payload.source}`);
+            return;
+        }
         auxCueSources[payload.source] = {
             cue: resolveLevel(payload.cue, 0),
             cueDb: resolveDb(payload.cueDb, Number.NEGATIVE_INFINITY),

@@ -7,12 +7,16 @@ const AUDIO_ENGINE_COMMANDS = Object.freeze([
     'fade',
     'setGain',
     'route',
+    'fx',
     'nowPlaying',
     'transport',
     'cartwallPlay',
     'cartwallStop',
     'startEncoder',
-    'stopEncoder'
+    'stopEncoder',
+    'timeLocution',
+    'masterGain',
+    'monitorGain'
 ]);
 
 function normalizeEngineMode(mode) {
@@ -152,7 +156,20 @@ class RustAudioEngineAdapter {
                 return {
                     cmd: 'route',
                     bus: payload.bus || payload.id || 'master',
-                    outputId: payload.outputId || payload.deviceId || 'default'
+                    outputId: payload.outputId || payload.deviceId || 'default',
+                    sourceMode: payload.sourceMode || payload.monitorSourceMode || ''
+                };
+            case 'fx':
+                return {
+                    cmd: 'fx',
+                    eq: payload.eq === true,
+                    comp: payload.comp === true,
+                    limiter: payload.limiter === true,
+                    preampDb: payload.preampDb ?? payload.preamp ?? 0,
+                    pan: payload.pan ?? 0,
+                    mono: payload.mono === true,
+                    bands: Array.isArray(payload.bands) ? payload.bands : [],
+                    order: Array.isArray(payload.order) ? payload.order : []
                 };
             case 'nowPlaying':
                 return {
@@ -184,16 +201,31 @@ class RustAudioEngineAdapter {
                     path: payload.path || '',
                     outputId: payload.outputId || payload.deviceId || 'default',
                     gain: payload.gain,
-                    shadow: payload.shadow === true
+                    autoplay: payload.autoplay === true
                 };
             case 'play':
             case 'pause':
             case 'stop':
                 return { cmd: type, player };
             case 'seek':
-                return { cmd: 'seek', player, positionMs: payload.positionMs ?? payload.ms ?? 0, shadow: payload.shadow === true };
+                return { cmd: 'seek', player, positionMs: payload.positionMs ?? payload.ms ?? 0 };
             case 'setGain':
                 return { cmd: 'setGain', player, gain: payload.gain ?? payload.value ?? 1 };
+            case 'cartwallPlay':
+                return {
+                    cmd: 'loadAudio',
+                    player: payload.player || payload.playerId || payload.id || `cartwall-${Date.now()}`,
+                    bus: payload.bus || 'cartwall',
+                    path: payload.path || payload.file || '',
+                    outputId: payload.outputId || payload.deviceId || 'default',
+                    gain: payload.gain ?? payload.volume ?? 1,
+                    autoplay: payload.autoplay !== false
+                };
+            case 'cartwallStop':
+                return {
+                    cmd: 'stop',
+                    player: payload.player || payload.playerId || payload.id || 'cartwall'
+                };
             case 'startEncoder':
                 return {
                     cmd: 'encoder',
@@ -212,6 +244,25 @@ class RustAudioEngineAdapter {
                     sampleRate: payload.sampleRate || 0,
                     transport: payload.transport || 'ffmpeg'
                 };
+            case 'timeLocution':
+                // Locución horaria delegada 100% al motor Rust: el frontend solo
+                // pasa carpeta, bus y player; Rust lee el reloj, resuelve los
+                // archivos y los encadena. Emite evento async `timeLocutionEnded`.
+                // `player` permite que la locución salga por player-a/player-b en
+                // el bus de programa (pl1-pl4) cuando se dispara desde la playlist,
+                // o por 'time-locucion' en el bus 'jingle' cuando es manual.
+                return {
+                    cmd: 'timeLocution',
+                    player: payload.player || 'time-locucion',
+                    folder: payload.folder || '',
+                    bus: payload.bus || 'jingle',
+                    gain: payload.gain ?? 1,
+                    outputId: payload.outputId || payload.deviceId || 'default'
+                };
+            case 'masterGain':
+                return { cmd: 'masterGain', gain: payload.gain ?? 1.0 };
+            case 'monitorGain':
+                return { cmd: 'monitorGain', gain: payload.gain ?? 1.0 };
             case 'stopEncoder':
                 return {
                     cmd: 'encoder',

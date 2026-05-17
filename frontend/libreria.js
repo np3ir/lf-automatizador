@@ -1486,6 +1486,8 @@ window.executeBatchAnalysis = function() {
     let tasks = [];
     if (currentTab === 'audio') {
         const useCustomDb = document.getElementById('chk-custom-db') ? document.getElementById('chk-custom-db').checked : false;
+        const analyzerProvider = document.querySelector('input[name="analysis_engine"]:checked')?.value || 'rustAudio';
+        const analyzerLabel = analyzerProvider === 'ffmpeg' ? 'FFmpeg' : 'Rust';
         
         // RECUPERAMOS LOS 3 VALORES INDIVIDUALMENTE DESDE LA UI
         const dbMixVal = parseFloat(document.getElementById('val-db-mix')?.value) || -14;
@@ -1503,6 +1505,7 @@ window.executeBatchAnalysis = function() {
                 dbMix: taskDbMix,
                 dbStart: taskDbStart,
                 dbFin: taskDbFin,
+                analyzerProvider,
                 forceOverwrite: true
             }));
         } else {
@@ -1518,11 +1521,12 @@ window.executeBatchAnalysis = function() {
                 dbMix: taskDbMix,
                 dbStart: taskDbStart,
                 dbFin: taskDbFin,
+                analyzerProvider,
                 forceOverwrite: false
             }));
         }
         if (tasks.length === 0) { alert("Todas las pistas ya tienen los datos solicitados. Nada que procesar."); return; }
-        startProgressUI(tasks.length, "Analizando con FFmpeg");
+        startProgressUI(tasks.length, `Analizando con ${analyzerLabel}`);
         ipcRenderer.send('lib-start-analyzer-ffmpeg', tasks);
 
     } else if (currentTab === 'meta') {
@@ -1590,7 +1594,11 @@ function handleTaskDone(result, processName) {
     if (completedBatchTasks >= totalBatchTasks || cancelRequested) { finishAnalysisUI(cancelRequested); }
 }
 
-ipcRenderer.on('analyzer-done', (e, r) => handleTaskDone(r, "Analizando con FFmpeg"));
+ipcRenderer.on('analyzer-done', (e, r) => {
+    const analyzer = String(r?.analyzer || '').toLowerCase();
+    const label = analyzer.includes('rust') ? 'Analizando con Rust' : (analyzer.includes('fallback') ? 'Analizando con FFmpeg (respaldo)' : 'Analizando con FFmpeg');
+    handleTaskDone(r, label);
+});
 ipcRenderer.on('meta-local-read-done', (e, r) => handleTaskDone(r, "Leyendo etiquetas locales"));
 ipcRenderer.on('meta-local-write-done', (e, r) => handleTaskDone(r, "Escribiendo en disco"));
 ipcRenderer.on('meta-net-done', (e, r) => handleTaskDone(r, "Buscando en Internet"));

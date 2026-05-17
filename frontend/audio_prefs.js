@@ -14,6 +14,7 @@ const AUDIO_PREFS_DEFAULTS = {
     playlistOutputs: ['default', 'default', 'default', 'default'],
     cartwallOutputMode: 'master',
     audioEngineMode: 'webAudio',
+    rustPlaylistOwnerEnabled: false,
     eventPreHoldActive: true,
     eventPreHoldSeconds: 20
 };
@@ -59,6 +60,7 @@ function normalizeAudioPrefs(prefs = {}) {
         playlistOutputs: normalizePlaylistOutputs(prefs.playlistOutputs, sharedPlaylistDevice || mainDevice),
         cartwallOutputMode: cartwallMode,
         audioEngineMode,
+        rustPlaylistOwnerEnabled: audioEngineMode === 'rustAudio' || prefs.rustPlaylistOwnerEnabled === true,
         eventPreHoldActive: prefs.eventPreHoldActive !== false,
         eventPreHoldSeconds: Math.max(1, Math.min(120, parseInt(prefs.eventPreHoldSeconds, 10) || AUDIO_PREFS_DEFAULTS.eventPreHoldSeconds))
     };

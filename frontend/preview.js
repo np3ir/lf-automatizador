@@ -1,99 +1,132 @@
 const { ipcRenderer } = require('electron');
 const path = require('path');
-const url = require('url');
-const { createEditorOutputRouter } = require('./editor_audio_output');
-const { createMeteringAnalyser, startCueVuMeter } = require('./audio_metering');
 
-const audio = document.getElementById('preview-audio');
-const titleEl = document.getElementById('preview-title');
-const progressBg = document.getElementById('preview-progress-bg');
-const progressFill = document.getElementById('preview-progress-fill');
-const currentEl = document.getElementById('preview-current');
-const totalEl = document.getElementById('preview-total');
-const btnStop = document.getElementById('btn-preview-stop');
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-const { outputNode: previewOutputNode, applyRouting: applyPreviewRouting, ensurePreviewPlayback } = createEditorOutputRouter(audioCtx);
-const previewSource = audioCtx.createMediaElementSource(audio);
-const previewAnalyser = createMeteringAnalyser(audioCtx, previewSource, 1024);
-previewSource.connect(previewOutputNode);
-const stopPreviewVuMeter = startCueVuMeter(ipcRenderer, previewAnalyser, 'preview');
+// ─── Referencias a elementos de la interfaz ───────────────────────────────────
+const titleEl       = document.getElementById('preview-title');
+const progressBg    = document.getElementById('preview-progress-bg');
+const progressFill  = document.getElementById('preview-progress-fill');
+const currentEl     = document.getElementById('preview-current');
+const totalEl       = document.getElementById('preview-total');
+const btnStop       = document.getElementById('btn-preview-stop');
 
-applyPreviewRouting();
+// Nota: el elemento <audio> del HTML se deja inerte; toda la reproducción
+// pasa ahora por el motor Rust → bus cue → tarjeta de sonido de pre-escucha.
 
-ipcRenderer.on('settings-updated', () => {
-    applyPreviewRouting();
-});
+// ─── Estado de reproducción ───────────────────────────────────────────────────
+let duracionTotal   = 0;        // duración de la pista en segundos (llega de getPeaks)
+let iniciandoMs     = 0;        // performance.now() en el instante exacto de arranque
+let timerProgreso   = null;     // handle del setInterval que anima la barra
+let cacheDirEditor  = '';       // ruta de la carpeta de caché de peaks
 
-// 2. FORMATEADOR DE TIEMPO
-function formatTime(seconds) {
-    if (isNaN(seconds)) return "00:00";
-    let m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    let s = Math.floor(seconds % 60).toString().padStart(2, '0');
+// Obtener la carpeta de caché al arrancar (misma que usan los editores avanzados)
+ipcRenderer.invoke('get-cache-dir')
+    .then(r => { if (r?.success) cacheDirEditor = r.cacheDir; })
+    .catch(() => {});
+
+// ─── Enviar comando al motor Rust ─────────────────────────────────────────────
+function rustCmd(payload) {
+    return ipcRenderer.invoke('audio-engine-rust-command', payload).catch(() => {});
+}
+
+// ─── Formatear segundos → mm:ss ───────────────────────────────────────────────
+function formatearTiempo(segundos) {
+    if (!isFinite(segundos) || segundos < 0) return '00:00';
+    const m = Math.floor(segundos / 60).toString().padStart(2, '0');
+    const s = Math.floor(segundos % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
 }
 
-// 3. RECIBIR EL ARCHIVO A REPRODUCIR DESDE EL PROGRAMA PRINCIPAL
-ipcRenderer.on('load-preview-track', (e, filePath) => {
-    
-    // Si había algo sonando antes, lo detenemos y limpiamos la barra visualmente
-    audio.pause();
-    audio.currentTime = 0;
-    progressFill.style.width = '0%';
-    currentEl.innerText = "00:00";
-    titleEl.style.color = "#ffffff";
+// ─── Tick de animación de la barra de progreso ────────────────────────────────
+function tickProgreso() {
+    const transcurrido = (performance.now() - iniciandoMs) / 1000;
+    currentEl.innerText = formatearTiempo(transcurrido);
 
-    // Mostrar solo el nombre del archivo
-    titleEl.innerText = path.basename(filePath);
-    
-    // Cargar y reproducir la nueva pista
-    audio.src = url.pathToFileURL(filePath).href;
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume().catch(() => {});
+    if (duracionTotal > 0) {
+        const pct = Math.min(1, transcurrido / duracionTotal) * 100;
+        progressFill.style.width = `${pct}%`;
+        // Cerrar automáticamente cuando termina la pista
+        if (transcurrido >= duracionTotal) {
+            detener();
+            window.close();
+        }
+    } else {
+        // Todavía esperando la duración del motor Rust
+        progressFill.style.width = '0%';
     }
-    ensurePreviewPlayback();
-    audio.play().catch(err => {
-        titleEl.innerText = "Error al reproducir formato.";
-        titleEl.style.color = "#e74c3c";
+}
+
+// ─── Detener reproducción y cancelar animación ────────────────────────────────
+function detener() {
+    if (timerProgreso) {
+        clearInterval(timerProgreso);
+        timerProgreso = null;
+    }
+    rustCmd({ cmd: 'stop', player: 'cue-player' });
+}
+
+// ─── Reproducir una pista por el bus de pre-escucha ───────────────────────────
+async function reproducir(rutaArchivo) {
+    duracionTotal = 0;
+    iniciandoMs   = performance.now();
+
+    // Actualizar título y resetear barra
+    titleEl.innerText       = path.basename(rutaArchivo);
+    titleEl.style.color     = '#ffffff';
+    progressFill.style.width = '0%';
+    currentEl.innerText     = '00:00';
+    totalEl.innerText       = '--:--';
+
+    // Parar cualquier pista que estuviera sonando
+    await rustCmd({ cmd: 'stop', player: 'cue-player' });
+
+    // Cargar y reproducir por el bus cue (pre-escucha independiente)
+    await rustCmd({ cmd: 'loadAudio', player: 'cue-player', path: rutaArchivo, gain: 1.0, bus: 'cue' });
+    await rustCmd({ cmd: 'play',      player: 'cue-player' });
+    // Reajustar el origen de tiempo tras la latencia de IPC
+    iniciandoMs = performance.now();
+
+    // Iniciar animación de barra de progreso
+    if (timerProgreso) clearInterval(timerProgreso);
+    timerProgreso = setInterval(tickProgreso, 100);
+
+    // Solicitar duración en paralelo (usa caché en disco si el archivo ya fue analizado)
+    // bins = 128 es suficiente para obtener durationMs sin procesar la forma de onda completa
+    ipcRenderer.invoke('audio-engine-rust-command', {
+        cmd: 'getPeaks', path: rutaArchivo, bins: 128, cacheDir: cacheDirEditor,
+    }).then(respuesta => {
+        if (respuesta && respuesta.type === 'peaks' && respuesta.durationMs > 0) {
+            duracionTotal           = respuesta.durationMs / 1000;
+            totalEl.innerText       = formatearTiempo(duracionTotal);
+        }
+    }).catch(() => {});
+}
+
+// ─── Saltar a posición al hacer clic en la barra de progreso ─────────────────
+progressBg.addEventListener('click', (e) => {
+    if (!duracionTotal) return;
+    const rect   = progressBg.getBoundingClientRect();
+    const pct    = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const posMs  = Math.round(pct * duracionTotal * 1000);
+    // Reubicar el origen del temporizador para que la barra no salte
+    iniciandoMs  = performance.now() - posMs;
+    rustCmd({ cmd: 'seek', player: 'cue-player', positionMs: posMs });
+});
+
+// ─── Botón Stop: detener reproducción y cerrar ventana ───────────────────────
+btnStop.addEventListener('click', () => {
+    detener();
+    window.close();
+});
+
+// ─── Recibir pista desde el programa principal (clic derecho → Escucha previa) ─
+ipcRenderer.on('load-preview-track', (evento, rutaArchivo) => {
+    reproducir(rutaArchivo).catch(() => {
+        titleEl.innerText   = 'Error al reproducir este formato.';
+        titleEl.style.color = '#e74c3c';
     });
 });
 
-// 4. ANIMAR BARRA Y RELOJES
-audio.addEventListener('timeupdate', () => {
-    currentEl.innerText = formatTime(audio.currentTime);
-    totalEl.innerText = formatTime(audio.duration);
-    
-    if (audio.duration) {
-        let percent = (audio.currentTime / audio.duration) * 100;
-        progressFill.style.width = `${percent}%`;
-    }
-});
-
-// Cargar la duración total rápido
-audio.addEventListener('loadedmetadata', () => {
-    totalEl.innerText = formatTime(audio.duration);
-});
-
-// 5. CIERRE AUTOMÁTICO AL TERMINAR LA CANCIÓN
-audio.addEventListener('ended', () => {
-    window.close();
-});
-
-// 6. BOTÓN STOP: CIERRE MANUAL
-btnStop.addEventListener('click', () => {
-    audio.pause();
-    window.close();
-});
-
+// ─── Limpiar al cerrar la ventana ─────────────────────────────────────────────
 window.addEventListener('beforeunload', () => {
-    stopPreviewVuMeter();
-});
-
-// 7. HACER CLIC EN LA BARRA PARA ADELANTAR/ATRASAR
-progressBg.addEventListener('click', (e) => {
-    if (!audio.duration) return;
-    const rect = progressBg.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percent = Math.max(0, Math.min(1, clickX / rect.width));
-    
-    audio.currentTime = percent * audio.duration;
+    detener();
 });

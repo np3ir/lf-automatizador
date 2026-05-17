@@ -59,6 +59,11 @@ function stopPreview() {
 
 async function togglePreview(filePath) {
     if (!filePath) return;
+    if (loadAudioPrefs().audioEngineMode === 'rustAudio') {
+        setStatus('Preescucha Web Audio bloqueada en modo Rust.', 'warn');
+        stopPreview();
+        return;
+    }
     if (previewPath === filePath && previewAudio) {
         stopPreview();
         return;

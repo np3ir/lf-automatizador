@@ -51,6 +51,32 @@
             gap: 8px;
             margin-bottom: 10px;
         }
+        .operator-engine-state {
+            border: 1px solid #2d3a45;
+            background: #0c0f13;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            color: #d6dee6;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .operator-engine-state[data-tone="rust"] {
+            border-color: #27ae60;
+            color: #2ecc71;
+        }
+        .operator-engine-state[data-tone="fallback"] {
+            border-color: #f39c12;
+            color: #f1c40f;
+        }
+        .operator-engine-state[data-tone="web"] {
+            border-color: #3498db;
+            color: #5dade2;
+        }
+        .operator-engine-state[data-tone="warn"] {
+            border-color: #e74c3c;
+            color: #ff7675;
+        }
         .diag-summary-line {
             border: 1px solid #242c34;
             background: #0c0f13;
@@ -206,6 +232,7 @@
                 <span id="diag-updated">Diagnostico en espera</span>
             </span>
         </div>
+        <div id="operator-engine-state" class="operator-engine-state" data-tone="web">Motor al aire: Web Audio API</div>
         <div id="diag-summary" class="diag-summary"></div>
         <div id="technical-controls" class="technical-controls">
             <button id="btn-rust-probe" class="toolbar-mini-btn">Probar IPC Rust</button>
@@ -217,6 +244,7 @@
             <button id="btn-rust-preview-safe" class="toolbar-mini-btn">Preview Rust</button>
             <button id="btn-rust-routing-map" class="toolbar-mini-btn">Test mapa Rust</button>
             <button id="btn-rust-real-players" class="toolbar-mini-btn">Test players</button>
+            <button id="btn-rust-pcm-ffmpeg" class="toolbar-mini-btn">Test PCM</button>
             <button id="btn-client-probe" class="toolbar-mini-btn">Test cliente</button>
             <button id="btn-contract-player" class="toolbar-mini-btn">Test contrato</button>
             <button id="btn-rust-snapshot" class="toolbar-mini-btn">Snapshot</button>

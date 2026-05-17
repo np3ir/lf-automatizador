@@ -2,8 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url'); 
 const { ipcRenderer } = require('electron');
-const { createEditorOutputRouter } = require('./editor_audio_output');
-const { createMeteringAnalyser, startCueVuMeter } = require('./audio_metering');
+// WEBAUDIO_DISABLED_BEGIN — VU meter y enrutamiento Web Audio del editor de audio
+// El audio ya sale por el motor Rust al bus cue. Este bloque puede borrarse tras pruebas.
+// const { createEditorOutputRouter } = require('./editor_audio_output');
+// const { createMeteringAnalyser, startCueVuMeter } = require('./audio_metering');
+// const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+// const { outputNode: editorOutputNode, applyRouting: applyEditorAudioRouting, ensurePreviewPlayback: ensureEditorPreviewPlayback } = createEditorOutputRouter(audioCtx);
+// const editorCueAnalyser = createMeteringAnalyser(audioCtx, editorOutputNode, 1024);
+// const stopEditorVuMeter = startCueVuMeter(ipcRenderer, editorCueAnalyser, 'audio-editor');
+// applyEditorAudioRouting();
+// ipcRenderer.on('settings-updated', () => { applyEditorAudioRouting(); });
+// WEBAUDIO_DISABLED_END
 
 let currentFilePath = null;
 let currentDuration = 0;
@@ -11,23 +20,20 @@ let zoomLevel = 1;
 let audioBuffer = null;
 let waveformPeaks = null;
 
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-const { outputNode: editorOutputNode, applyRouting: applyEditorAudioRouting, ensurePreviewPlayback: ensureEditorPreviewPlayback } = createEditorOutputRouter(audioCtx);
-const editorCueAnalyser = createMeteringAnalyser(audioCtx, editorOutputNode, 1024);
-const stopEditorVuMeter = startCueVuMeter(ipcRenderer, editorCueAnalyser, 'audio-editor');
-
 function nodeBufferToArrayBuffer(buffer) {
     return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
 }
 
-applyEditorAudioRouting();
-
 let sourceNode = null;
-let startTime = 0;
+let startTime = 0;      // performance.now()/1000 al inicio (RUST_ENGINE) o audioCtx.currentTime (WEBAUDIO_DISABLED)
 let pauseTime = 0;
 let isPlaying = false;
 let animationFrameId = null;
 let editorLoadToken = 0;
+
+// RUST_ENGINE: Carpeta de caché de peaks (se resuelve al arrancar la ventana)
+let editorCacheDir = '';
+ipcRenderer.invoke('get-cache-dir').then(r => { if (r?.success) editorCacheDir = r.cacheDir; }).catch(() => {});
 
 const container = document.getElementById('wave-container');
 const innerWrapper = document.getElementById('wave-inner');
@@ -138,7 +144,9 @@ function clamp(value, min, max) {
 }
 
 function getEditorCurrentTime() {
-    const rawTime = isPlaying ? (audioCtx.currentTime - startTime) : pauseTime;
+    // RUST_ENGINE: El tiempo se mide con performance.now() para no depender del AudioContext.
+    // startTime se asigna como (performance.now()/1000 - startAt) en playAudio().
+    const rawTime = isPlaying ? (performance.now() / 1000 - startTime) : pauseTime;
     if (!currentDuration || currentDuration <= 0) return Math.max(0, rawTime || 0);
     return Math.max(0, Math.min(rawTime || 0, currentDuration));
 }
@@ -170,7 +178,7 @@ function shouldResumeAutoFollow() {
 }
 
 function updateScrollGuide() {
-    if (!scrollGuideElement || !container || !canvas || !audioBuffer) return;
+    if (!scrollGuideElement || !container || !canvas || !currentDuration || currentDuration <= 0) return;
     const hasHorizontalScroll = canvas.width > container.clientWidth + 1;
     if (!hasHorizontalScroll) {
         scrollGuideElement.style.display = 'none';
@@ -426,7 +434,11 @@ window.applyMetaSelection = function() {
 }
 
 // --- DIBUJO Y AUDIO ---
-const resizeObserver = new ResizeObserver(() => { if (audioBuffer && container.clientWidth > 0) drawWaveform(); });
+// FIX BUG (resize en modo Rust): la guarda original `if (audioBuffer)` era
+// false en modo Rust porque el motor Rust hace la decodificación y aquí
+// dejamos `audioBuffer = null`. Usamos `waveformPeaks` que sí se llena con
+// los datos pre-calculados que vienen del motor.
+const resizeObserver = new ResizeObserver(() => { if (waveformPeaks && container.clientWidth > 0) drawWaveform(); });
 resizeObserver.observe(container);
 
 function autoDetectSilence(buffer) {
@@ -500,37 +512,60 @@ ipcRenderer.on('load-audio-file', async (e, filePath) => {
             if (titleInput) titleInput.value = metadata?.title || '';
         } catch(metaErr) {}
 
-        const fileData = await fs.promises.readFile(filePath);
-        const buffer = await audioCtx.decodeAudioData(nodeBufferToArrayBuffer(fileData));
+        // ── RUST_ENGINE: Peaks, duración y silencios vía motor Rust ──────────────
+        // Sustituye: fs.readFile → decodeAudioData → buildWaveformPeaks → autoDetectSilence
+        // El motor Rust decodifica en streaming (bajo RAM), calcula picos y detecta silencios.
+        const peaksResult = await ipcRenderer.invoke('audio-engine-rust-command', {
+            cmd: 'getPeaks',
+            path: filePath,
+            bins: 8192,
+            cacheDir: editorCacheDir,
+        });
         if (loadToken !== editorLoadToken || currentFilePath !== filePath) return;
 
-        audioBuffer = buffer;
-        waveformPeaks = buildWaveformPeaks(buffer);
-        currentDuration = buffer.duration;
+        if (!peaksResult?.success || peaksResult.message?.type !== 'peaks') {
+            const lblFileName = document.getElementById('lbl-filename');
+            if (lblFileName) {
+                lblFileName.innerText = 'Error: Motor Rust no pudo leer el archivo.';
+                lblFileName.style.color = '#e74c3c';
+            }
+            return;
+        }
+
+        const peaksMsg = peaksResult.message;
+        audioBuffer = null; // WEBAUDIO_DISABLED: ya no se necesita el AudioBuffer en RAM
+        waveformPeaks = {
+            min: new Float32Array(peaksMsg.min),
+            max: new Float32Array(peaksMsg.max),
+            bins: peaksMsg.bins,
+        };
+        currentDuration = peaksMsg.durationMs / 1000;
+        // ─────────────────────────────────────────────────────────────────────────
+
         const lblFileName = document.getElementById('lbl-filename');
         if (lblFileName) lblFileName.innerText = path.basename(filePath);
-        
-        const autoCues = autoDetectSilence(audioBuffer);
+
+        // Silencios detectados por Rust (reemplaza autoDetectSilence())
+        const autoCues = {
+            start: peaksMsg.silenceStart ?? 0,
+            end:   peaksMsg.silenceEnd   ?? currentDuration,
+        };
         await loadExistingCues(autoCues);
         
         requestAnimationFrame(() => { setTimeout(() => drawWaveform(), 150); });
     } catch(err) {
         const lblFileName = document.getElementById('lbl-filename');
         if (lblFileName) {
-            const isDecodeError = String(err?.message || '').toLowerCase().includes('decode');
-            lblFileName.innerText = isDecodeError ? "Error: Archivo incompatible o corrupto." : "Error crÃ­tico leyendo el archivo.";
-            lblFileName.style.color = "#e74c3c";
+            lblFileName.innerText = 'Error crítico cargando el archivo.';
+            lblFileName.style.color = '#e74c3c';
         }
     }
 });
 
-ipcRenderer.on('settings-updated', () => {
-    applyEditorAudioRouting();
-});
-
-window.addEventListener('beforeunload', () => {
-    stopEditorVuMeter();
-});
+// WEBAUDIO_DISABLED_BEGIN — callbacks Web Audio desconectados
+// ipcRenderer.on('settings-updated', () => { applyEditorAudioRouting(); });
+// window.addEventListener('beforeunload', () => { stopEditorVuMeter(); });
+// WEBAUDIO_DISABLED_END
 
 async function loadExistingCues(autoCues = null) {
     let defaultInicio = autoCues ? autoCues.start : 0;
@@ -682,7 +717,26 @@ async function saveCuesSilently() {
     ipcRenderer.send('refresh-manual-cues');
 }
 
-window.saveAndClose = async function() { await saveCuesSilently(); window.close(); }
+// FASE 2A — detener el player Rust antes de cerrar.
+function stopAudioEditorRustOnExit() {
+    try {
+        ipcRenderer.invoke('audio-engine-rust-command', { cmd: 'stop', player: 'audio-editor' }).catch(() => {});
+    } catch (err) {}
+}
+window.addEventListener('beforeunload', stopAudioEditorRustOnExit);
+
+window.saveAndClose = async function() {
+    stopAudioEditorRustOnExit();
+    await saveCuesSilently();
+    window.close();
+}
+// FASE 2A — el HTML pone onclick="window.close()" directo en el botón Cancelar.
+// Lo interceptamos sobreescribiendo window.close para que pare el player primero.
+const __originalWindowClose = window.close.bind(window);
+window.close = function() {
+    stopAudioEditorRustOnExit();
+    __originalWindowClose();
+};
 
 const btnPrev = document.getElementById('btn-prev-track');
 if(btnPrev) { btnPrev.addEventListener('click', async () => { await saveCuesSilently(); ipcRenderer.send('editor-request-track', { current: currentFilePath, dir: 'prev' }); }); }
@@ -690,7 +744,7 @@ if(btnPrev) { btnPrev.addEventListener('click', async () => { await saveCuesSile
 const btnNext = document.getElementById('btn-next-track');
 if(btnNext) { btnNext.addEventListener('click', async () => { await saveCuesSilently(); ipcRenderer.send('editor-request-track', { current: currentFilePath, dir: 'next' }); }); }
 
-window.setCue = function(type) { let t = isPlaying ? (audioCtx.currentTime - startTime) : pauseTime; const el = document.getElementById(`cue-${type}`); if(el) el.value = t.toFixed(2); refreshOverlay(); };
+window.setCue = function(type) { let t = getEditorCurrentTime(); const el = document.getElementById(`cue-${type}`); if(el) el.value = t.toFixed(2); refreshOverlay(); };
 window.clearCue = function(type) { const el = document.getElementById(`cue-${type}`); if(el) el.value = '0.00'; refreshOverlay(); };
 window.playFrom = function(type) { const cueInput = document.getElementById(`cue-${type}`); if (cueInput) { const timeVal = parseFloat(cueInput.value); if (!isNaN(timeVal)) playAudio(timeVal, true); } };
 window.togglePlay = async function() {
@@ -698,7 +752,7 @@ window.togglePlay = async function() {
         if (isPlaying) {
             stopAudio(true);
         } else {
-            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            // WEBAUDIO_DISABLED: if (audioCtx.state === 'suspended') await audioCtx.resume();
             await playAudio(pauseTime, true);
         }
     } catch (err) {
@@ -714,8 +768,14 @@ function updatePlayButtonVisual() {
 }
 
 window.stopAudio = function(isPause = false) {
-    if (sourceNode) { sourceNode.onended = null; try { sourceNode.stop(); } catch(e) {} sourceNode.disconnect(); sourceNode = null; }
-    if (isPause) pauseTime = audioCtx.currentTime - startTime;
+    // WEBAUDIO_DISABLED_BEGIN — ya no hay sourceNode de WebAudio en reproducción normal
+    // if (sourceNode) { sourceNode.onended = null; try { sourceNode.stop(); } catch(e) {} sourceNode.disconnect(); sourceNode = null; }
+    // WEBAUDIO_DISABLED_END
+
+    // RUST_ENGINE: Detener el player del editor en el motor Rust
+    ipcRenderer.invoke('audio-engine-rust-command', { cmd: 'stop', player: 'audio-editor' }).catch(() => {});
+
+    if (isPause) pauseTime = performance.now() / 1000 - startTime;
     else { pauseTime = 0; if(aeCursorElement) aeCursorElement.style.left = '0px'; if(timeText) timeText.innerText = "00:00.000"; }
     isPlaying = false;
     stopCursorLoop();
@@ -723,22 +783,46 @@ window.stopAudio = function(isPause = false) {
 };
 
 async function playAudio(startAt, forcePlay = false) {
-    if (!audioBuffer) return;
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-    ensureEditorPreviewPlayback();
-    
-    const wasPlaying = isPlaying;
-    if (sourceNode) { sourceNode.onended = null; try { sourceNode.stop(); } catch(e){} sourceNode.disconnect(); sourceNode = null; }
+    if (!currentFilePath || !waveformPeaks) return;
 
+    // WEBAUDIO_DISABLED_BEGIN — reproducción ya no usa AudioBuffer ni BufferSourceNode
+    // if (!audioBuffer) return;
+    // if (audioCtx.state === 'suspended') await audioCtx.resume();
+    // ensureEditorPreviewPlayback();
+    // if (sourceNode) { sourceNode.onended = null; try { sourceNode.stop(); } catch(e){} sourceNode.disconnect(); sourceNode = null; }
+    // sourceNode = audioCtx.createBufferSource(); sourceNode.buffer = audioBuffer; sourceNode.connect(editorOutputNode);
+    // sourceNode.start(0, startAt); startTime = audioCtx.currentTime - startAt;
+    // sourceNode.onended = () => { if (isPlaying) stopAudio(); };
+    // WEBAUDIO_DISABLED_END
+
+    const wasPlaying = isPlaying;
     pauseTime = startAt;
-    if (wasPlaying || forcePlay) { 
-        sourceNode = audioCtx.createBufferSource(); sourceNode.buffer = audioBuffer; sourceNode.connect(editorOutputNode);
-        sourceNode.start(0, startAt); startTime = audioCtx.currentTime - startAt; isPlaying = true; autoScrollEnabled = true; lastManualNavigationAt = 0;
-        
+
+    if (wasPlaying || forcePlay) {
+        // RUST_ENGINE: Cargar archivo en el motor Rust y reproducir desde startAt
+        try {
+            await ipcRenderer.invoke('audio-engine-rust-command', {
+                cmd: 'loadAudio', player: 'audio-editor', path: currentFilePath, gain: 1.0, bus: 'cue',
+            });
+            if (startAt > 0.01) {
+                await ipcRenderer.invoke('audio-engine-rust-command', {
+                    cmd: 'seek', player: 'audio-editor', positionMs: Math.round(startAt * 1000),
+                });
+            }
+            await ipcRenderer.invoke('audio-engine-rust-command', {
+                cmd: 'play', player: 'audio-editor',
+            });
+        } catch (err) {
+            console.error('[AudioEditor] Rust playback error:', err);
+        }
+
+        startTime = performance.now() / 1000 - startAt; // reloj para getEditorCurrentTime()
+        isPlaying = true;
+        autoScrollEnabled = true;
+        lastManualNavigationAt = 0;
+
         const px = getCursorPixel(startAt);
         centerCursorInViewport(px);
-
-        sourceNode.onended = () => { if (isPlaying) stopAudio(); };
         syncCursorPosition(startAt);
         startCursorLoop();
         updatePlayButtonVisual();
@@ -767,7 +851,7 @@ if (container) {
 if (zoomSlider) {
     // Slider: zoom centrado en el playhead (línea roja)
     zoomSlider.addEventListener('input', (e) => {
-        let currentSeconds = isPlaying ? (audioCtx.currentTime - startTime) : pauseTime;
+        let currentSeconds = getEditorCurrentTime(); // RUST_ENGINE: era audioCtx.currentTime - startTime
 
         zoomLevel = parseFloat(e.target.value);
         drawWaveform();
@@ -783,8 +867,9 @@ if (zoomSlider) {
 }
 
 function drawWaveform() {
-    if (!audioBuffer || !waveformPeaks || !container || !canvas || !innerWrapper || !ctx) return;
-    const baseWidth = container.clientWidth; if(baseWidth === 0) return; 
+    // RUST_ENGINE: audioBuffer ya no se usa; la guarda pasa a waveformPeaks + currentDuration
+    if (!waveformPeaks || !currentDuration || !container || !canvas || !innerWrapper || !ctx) return;
+    const baseWidth = container.clientWidth; if(baseWidth === 0) return;
 
     canvas.width = baseWidth * zoomLevel; canvas.height = container.clientHeight; innerWrapper.style.width = `${canvas.width}px`;
     if (overlayCanvas) {
@@ -793,24 +878,53 @@ function drawWaveform() {
     }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const binsPerPixel = waveformPeaks.bins / canvas.width; 
+    const binsPerPixel = waveformPeaks.bins / canvas.width;
     const amp = canvas.height / 2;
 
-    ctx.fillStyle = '#00a8ff';
-    let lastY = amp; 
+    // FIX BUG (waveform legible): el algoritmo anterior pintaba rectángulos
+    // verticales de `min` a `max` por pixel. En música densa con bins agrupados,
+    // ambos rozan ±1 → la onda se ve como "código de barras" saturado. La
+    // solución profesional: pintar una ENVELOPE espejada usando la amplitud
+    // absoluta máxima por pixel. Resultado: silueta clásica de Audition.
 
-    for(let i = 0; i < canvas.width; i++){ 
-        let min = 1.0, max = -1.0; 
+    // 1) Calcular amplitud absoluta por columna de pixel.
+    const peakPerPixel = new Float32Array(canvas.width);
+    for (let i = 0; i < canvas.width; i++) {
+        let absMax = 0;
         const startBin = Math.floor(i * binsPerPixel);
         const endBin = Math.max(startBin + 1, Math.ceil((i + 1) * binsPerPixel));
-        for(let j = startBin; j < endBin && j < waveformPeaks.bins; j++) {
-            const binMin = waveformPeaks.min[j];
-            const binMax = waveformPeaks.max[j];
-            if (binMin < min) min = binMin;
-            if (binMax > max) max = binMax;
-        } 
-        if (endBin - startBin < 2) { let currentY = (1 + min) * amp; let yStart = Math.min(lastY, currentY); let yLen = Math.max(1, Math.abs(currentY - lastY)); ctx.fillRect(i, yStart, 1, yLen); lastY = currentY; } else { ctx.fillRect(i, (1 + min) * amp, 1, Math.max(1, (max - min) * amp)); }
+        for (let j = startBin; j < endBin && j < waveformPeaks.bins; j++) {
+            const a = Math.max(Math.abs(waveformPeaks.min[j]), Math.abs(waveformPeaks.max[j]));
+            if (a > absMax) absMax = a;
+        }
+        peakPerPixel[i] = absMax;
     }
+
+    // 2) Pintar envelope rellena (top + bottom espejada desde el centro).
+    ctx.fillStyle = '#00a8ff';
+    ctx.beginPath();
+    ctx.moveTo(0, amp);
+    // Borde superior (de izquierda a derecha)
+    for (let i = 0; i < canvas.width; i++) {
+        const y = amp - (peakPerPixel[i] * amp);
+        ctx.lineTo(i, y);
+    }
+    // Borde inferior (de derecha a izquierda, espejado)
+    for (let i = canvas.width - 1; i >= 0; i--) {
+        const y = amp + (peakPerPixel[i] * amp);
+        ctx.lineTo(i, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // 3) Línea central tenue para reforzar la lectura del "eje cero".
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, amp);
+    ctx.lineTo(canvas.width, amp);
+    ctx.stroke();
+
     refreshOverlay();
 }
 
@@ -849,14 +963,18 @@ function getMarkerAtX(x) {
 
 if (innerWrapper) {
     innerWrapper.addEventListener('mousedown', (e) => {
-        if (!audioBuffer) return;
+        // FIX BUG (click sobre onda no responde): en modo Rust audioBuffer
+        // siempre es null porque el decode lo hace el motor nativo. Antes el
+        // guard `!audioBuffer` bloqueaba el inicio del click/drag de la onda.
+        // Cambiado a `!waveformPeaks` que sí refleja "pista lista".
+        if (!waveformPeaks) return;
         const rect = innerWrapper.getBoundingClientRect(); const x = e.clientX - rect.left; draggedMarkerId = getMarkerAtX(x);
-        if (draggedMarkerId) { isDraggingMarker = true; setWaveCursor('ew-resize'); } 
+        if (draggedMarkerId) { isDraggingMarker = true; setWaveCursor('ew-resize'); }
         else { isDraggingWave = true; dragStartX = e.clientX; scrollStartX = container.scrollLeft; setWaveCursor('grabbing'); markManualNavigation(); }
     });
     // Ctrl+Rueda: zoom centrado en la posición del mouse
     innerWrapper.addEventListener('wheel', (e) => {
-        if (!audioBuffer) return;
+        if (!waveformPeaks) return;
         if (e.ctrlKey || e.shiftKey) {
             e.preventDefault();
             const containerRect = container.getBoundingClientRect();
@@ -894,7 +1012,8 @@ if (innerWrapper) {
 
 
 window.addEventListener('mousemove', (e) => {
-    if (!audioBuffer || !innerWrapper) return;
+    // FIX BUG: mismo motivo — `audioBuffer` siempre null en modo Rust.
+    if (!waveformPeaks || !innerWrapper) return;
     if (isDraggingMarker && draggedMarkerId) {
         const rect = innerWrapper.getBoundingClientRect(); let x = e.clientX - rect.left;
         if (x < 0) x = 0; if (x > canvas.width) x = canvas.width;
@@ -940,7 +1059,9 @@ window.addEventListener('blur', () => {
     }
 });
 
-window.addEventListener('resize', () => { if(audioBuffer) drawWaveform(); });
+// FIX BUG (resize en modo Rust): mismo motivo que el resizeObserver — la
+// guarda `if (audioBuffer)` era false porque el motor Rust hace el decode.
+window.addEventListener('resize', () => { if(waveformPeaks) drawWaveform(); });
 window.browsePisador = function(id) { const input = document.createElement('input'); input.type = 'file'; input.accept = 'audio/*'; input.onchange = e => { if(e.target.files.length > 0) document.getElementById(`file-${id}`).value = e.target.files[0].path; }; input.click(); };
 window.addEventListener('keydown', (e) => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return; if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); togglePlay(); } });
 

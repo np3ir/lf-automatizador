@@ -18,25 +18,20 @@ function isBenignRustStderr(message = '') {
     return String(message).includes('Dropping DeviceSink, audio playing through this sink will stop');
 }
 
-const SHADOW_DRIFT_WARN_MS = 750;
-const SHADOW_DRIFT_SPIKE_MS = 250;
-const SHADOW_DRIFT_LOG_INTERVAL_MS = 10000;
-const SHADOW_DRIFT_EDGE_GUARD_MS = 3000;
-const SHADOW_DRIFT_SHORT_ITEM_MS = 12000;
-const SHADOW_DRIFT_PLAYER_SWITCH_GUARD_MS = 4000;
-const SHADOW_DRIFT_STARTUP_GUARD_MS = 8000;
-const SHADOW_DRIFT_ROUTE_GUARD_MS = 6000;
-const SHADOW_DRIFT_PLAYBACK_COMMAND_GUARD_MS = 2500;
-const SHADOW_DRIFT_LARGE_DESYNC_MS = 20000;
 const REPORT_MAX_BYTES = 5 * 1024 * 1024;
 const REPORT_KEEP_BYTES = 1024 * 1024;
 const ROUTINE_STATUS_LOG_INTERVAL_MS = 30000;
 
 class RustAudioEngineProbe {
-    constructor({ rootDir, cp, writeLog } = {}) {
+    constructor({ rootDir, cp, writeLog, onEngineEvent } = {}) {
         this.rootDir = rootDir || path.join(__dirname, '..');
         this.cp = cp || require('child_process');
         this.writeLog = typeof writeLog === 'function' ? writeLog : () => {};
+        // Callback opcional para eventos asíncronos del motor que no son
+        // respuesta directa a un comando (p.ej. `timeLocutionStarted`,
+        // `timeLocutionEnded`). main.js los reenvía al renderer vía IPC para
+        // que el frontend reaccione sin tener que orquestar nada por sí mismo.
+        this.onEngineEvent = typeof onEngineEvent === 'function' ? onEngineEvent : null;
         this.exePath = resolveRustAudioEnginePath(this.rootDir);
         this.reportPath = path.join(this.rootDir, 'config', 'audio_engine_report.jsonl');
         this.process = null;
@@ -47,28 +42,18 @@ class RustAudioEngineProbe {
         this.lastStatus = null;
         this.lastDevices = null;
         this.lastError = '';
-        this.lastShadowDrift = null;
-        this.lastShadowDriftIdentity = '';
-        this.lastShadowDriftIdentityChangedAt = 0;
-        this.lastShadowDriftRouteChangedAt = 0;
-        this.lastShadowDriftPlaybackCommandAt = 0;
-        this.shadowDriftStats = {
-            startedAt: null,
-            samples: 0,
-            okSamples: 0,
-            spikeSamples: 0,
-            warnSamples: 0,
-            ignoredSamples: 0,
-            largeDesyncSamples: 0,
-            maxAbsDriftMs: 0,
-            avgAbsDriftMs: 0,
-            lastWarnAt: null
-        };
-        this.lastShadowDriftLogAt = 0;
         this.lastRoutineStatusLogAt = 0;
         this.lastRoutineCommandLogAt = 0;
         this.startedAt = null;
         this.stopping = false;
+        // FASE D · sub-paso 8.2 — Tap del encoder directo desde Rust.
+        // Cuando el lado JS arranca el encoder, llama attachPcmConsumer(cb)
+        // y el probe envía `encoderTap { enable: true }` al motor. Cada
+        // PushTick (100 ms) el motor emite un mensaje `pcmChunk` con base64
+        // del PCM s16le acumulado. handleLine lo decodifica y se lo entrega
+        // al callback registrado. Eso reemplaza al viejo RustPcmBridgeEncoderSource
+        // (que estaba referenciado pero nunca implementado).
+        this.pcmConsumer = null;
         try { fs.mkdirSync(path.dirname(this.reportPath), { recursive: true }); } catch (err) {}
     }
 
@@ -103,7 +88,6 @@ class RustAudioEngineProbe {
         if (!command || typeof command !== 'object') return false;
         if (command.cmd === 'transport' || command.cmd === 'status') return true;
         if (command.cmd === 'encoder' && command.action === 'status') return true;
-        if (command.cmd === 'seek' && command.shadow === true) return true;
         return false;
     }
 
@@ -160,8 +144,6 @@ class RustAudioEngineProbe {
                 stdio: ['pipe', 'pipe', 'pipe']
             });
             this.startedAt = Date.now();
-            this.lastShadowDriftRouteChangedAt = this.startedAt;
-            this.lastShadowDriftPlaybackCommandAt = 0;
             this.lastError = '';
             this.stopping = false;
             this.logEvent('start', { exePath: this.exePath });
@@ -208,8 +190,38 @@ class RustAudioEngineProbe {
         this.logEvent('stop');
         this.process = null;
         this.readline = null;
+        this.pcmConsumer = null;
         this.rejectPending('Proceso RustAudio detenido.');
         return { success: true, stopped: true };
+    }
+
+    // ─── FASE D · sub-paso 8.2 — Tap PCM del encoder ─────────────────────
+    //
+    // attachPcmConsumer(cb): registra el callback que recibirá chunks PCM
+    // s16le del bus encoder. Manda `encoderTap { enable: true }` al motor,
+    // que empieza a drenar el ring del encoder en cada PushTick y a emitir
+    // mensajes `pcmChunk` por stdout. handleLine los decodifica y se los
+    // entrega al callback (típicamente `chunk => ffmpeg.stdin.write(chunk)`).
+    //
+    // detachPcmConsumer(): apaga el envío y limpia el callback.
+    //
+    // isPcmTapMode(): retorna true si hay consumer activo (compatibilidad
+    // con el código existente en windows.js que pregunta esto para decidir
+    // el path de inicialización del encoder).
+    attachPcmConsumer(callback) {
+        if (typeof callback !== 'function') return;
+        this.pcmConsumer = callback;
+        this.command({ cmd: 'encoderTap', enable: true }).catch(() => {});
+    }
+
+    detachPcmConsumer() {
+        if (!this.pcmConsumer) return;
+        this.pcmConsumer = null;
+        this.command({ cmd: 'encoderTap', enable: false }).catch(() => {});
+    }
+
+    isPcmTapMode() {
+        return this.pcmConsumer !== null;
     }
 
     handleLine(line) {
@@ -221,23 +233,46 @@ class RustAudioEngineProbe {
             this.logEvent('parse-error', { line });
             return;
         }
+        // FASE D · sub-paso 8.2: chunks PCM del bus encoder. Llegan en cada
+        // PushTick (100 ms) si encoder_tap_active=true en Rust. NO van por
+        // pending ni se loguean al jsonl (volumen alto: ~10/s). Se decodifican
+        // y se entregan al callback registrado por attachPcmConsumer.
+        if (message?.type === 'pcmChunk') {
+            if (this.pcmConsumer && typeof message.pcm === 'string') {
+                try {
+                    const buf = Buffer.from(message.pcm, 'base64');
+                    this.pcmConsumer(buf);
+                } catch (err) {
+                    this.lastError = `pcmChunk decode: ${err.message || err}`;
+                }
+            }
+            return;
+        }
         const pending = message.type === 'ready' ? null : this.takePendingForMessage(message);
-        const isShadowCommand = pending?.command?.shadow === true || pending?.command?.player === 'shadow-active';
         if (message.type === 'status' || message.type === 'ready') {
             this.lastStatus = message;
             this.lastError = '';
-            if (message.type === 'status') this.updateShadowDrift(message);
         } else if (message.type === 'devices') {
             this.lastDevices = message;
             this.lastError = '';
         } else if (message.type === 'error') {
-            if (isShadowCommand) {
-                this.logEvent('shadow-error', { command: pending.command, error: message.message || 'RustAudio reporto error.' });
-            } else {
-                this.lastError = message.message || 'RustAudio reporto error.';
-            }
+            this.lastError = message.message || 'RustAudio reporto error.';
         }
         this.logEvent('message', { message });
+        // Eventos asíncronos del motor: tipos que NO son respuesta directa al
+        // último comando. Se reenvían al renderer vía onEngineEvent. Si además
+        // arrastran el requestId del comando original (como `timeLocutionStarted`),
+        // dejamos que el flujo normal de pending también los resuelva.
+        //
+        // Caso especial PUSH STATUS: cuando el motor emite `status` por su
+        // propio bucle de 100 ms (sin que nadie lo pidió), `pending` viene
+        // vacío. Lo reenviamos al renderer por el mismo canal para apagar
+        // el polling agresivo (filosofía "humilde control remoto").
+        const isPushStatus = message?.type === 'status' && !pending;
+        const isAsyncEvent = message?.type && message.type !== 'status' && message.type !== 'devices' && message.type !== 'error' && message.type !== 'ready' && message.type !== 'peaks';
+        if (this.onEngineEvent && (isPushStatus || isAsyncEvent)) {
+            try { this.onEngineEvent(message); } catch (err) {}
+        }
         if (message.type === 'ready') return;
         if (pending) {
             clearTimeout(pending.timeout);
@@ -246,135 +281,6 @@ class RustAudioEngineProbe {
             } else {
                 pending.resolve({ success: true, message, status: this.lastStatus });
             }
-        }
-    }
-
-    updateShadowDrift(status = {}) {
-        const transport = status.transport || null;
-        const players = Array.isArray(status.players) ? status.players : [];
-        const transportPlayerId = transport?.player || '';
-        const shadow = players.find(player => player?.id === transportPlayerId)
-            || players.find(player => player?.id === 'shadow-active');
-        if (!transport || !shadow || !Number.isFinite(Number(transport.positionMs))) {
-            this.lastShadowDrift = null;
-            return;
-        }
-        const transportPositionMs = Number(transport.positionMs) || 0;
-        const durationMs = Number(transport.durationMs) || 0;
-        const shadowPositionMs = Number(shadow.positionMs) || 0;
-        const driftMs = Math.round(shadowPositionMs - transportPositionMs);
-        const absDriftMs = Math.abs(driftMs);
-        const remainingMs = durationMs > 0 ? Math.max(0, durationMs - transportPositionMs) : null;
-        const now = Date.now();
-        const identity = [
-            transport?.player || '',
-            transport?.mixReferencePlayer || '',
-            status.nowPlaying?.path || '',
-            status.nowPlaying?.player || '',
-            shadow.path || ''
-        ].join('|');
-        if (identity !== this.lastShadowDriftIdentity) {
-            this.lastShadowDriftIdentity = identity;
-            this.lastShadowDriftIdentityChangedAt = now;
-        }
-        const ignoreReason = this.getShadowDriftIgnoreReason({
-            transport,
-            shadow,
-            transportPositionMs,
-            durationMs,
-            remainingMs,
-            absDriftMs,
-            now,
-            identityAgeMs: this.lastShadowDriftIdentityChangedAt ? now - this.lastShadowDriftIdentityChangedAt : 0,
-            nowPlaying: status.nowPlaying || null
-        });
-        const severity = ignoreReason
-            ? 'ignored'
-            : absDriftMs > SHADOW_DRIFT_WARN_MS
-            ? 'warn'
-            : absDriftMs > SHADOW_DRIFT_SPIKE_MS
-                ? 'spike'
-                : 'ok';
-        if (!this.shadowDriftStats.startedAt) this.shadowDriftStats.startedAt = new Date().toISOString();
-        if (ignoreReason) {
-            this.shadowDriftStats.ignoredSamples += 1;
-            if (ignoreReason === 'large-shadow-desync') this.shadowDriftStats.largeDesyncSamples += 1;
-        } else {
-            this.shadowDriftStats.samples += 1;
-        }
-        if (severity === 'warn') {
-            this.shadowDriftStats.warnSamples += 1;
-            this.shadowDriftStats.lastWarnAt = new Date().toISOString();
-        } else if (severity === 'spike') {
-            this.shadowDriftStats.spikeSamples += 1;
-            this.shadowDriftStats.okSamples += 1;
-        } else if (severity === 'ok') {
-            this.shadowDriftStats.okSamples += 1;
-        }
-        if (!ignoreReason) {
-            this.shadowDriftStats.maxAbsDriftMs = Math.max(this.shadowDriftStats.maxAbsDriftMs, absDriftMs);
-            this.shadowDriftStats.avgAbsDriftMs = Math.round(
-                (((this.shadowDriftStats.avgAbsDriftMs || 0) * (this.shadowDriftStats.samples - 1)) + absDriftMs)
-                    / this.shadowDriftStats.samples
-            );
-        }
-        this.lastShadowDrift = {
-            at: new Date().toISOString(),
-            player: shadow.id || '',
-            status: shadow.status || '',
-            audioReady: !!shadow.audioReady,
-            transportStatus: transport.status || '',
-            startCause: transport.startCause || '',
-            mixActive: transport.mixActive === true,
-            mixPhase: transport.mixPhase || '',
-            mixDirection: transport.mixDirection || '',
-            mixReferencePlayer: transport.mixReferencePlayer || '',
-            transportPositionMs,
-            durationMs,
-            remainingMs,
-            shadowPositionMs,
-            driftMs,
-            absDriftMs,
-            thresholdMs: SHADOW_DRIFT_WARN_MS,
-            spikeThresholdMs: SHADOW_DRIFT_SPIKE_MS,
-            severity,
-            ignoreReason
-        };
-        if (severity === 'warn' && now - this.lastShadowDriftLogAt > SHADOW_DRIFT_LOG_INTERVAL_MS) {
-            this.lastShadowDriftLogAt = now;
-            this.logEvent('shadow-drift', { drift: this.lastShadowDrift });
-        }
-    }
-
-    getShadowDriftIgnoreReason({ transport, shadow, transportPositionMs, durationMs, remainingMs, absDriftMs, now, identityAgeMs, nowPlaying } = {}) {
-        if (transport?.status !== 'playing') return 'transport-idle';
-        if (shadow?.status !== 'playing') return 'shadow-idle';
-        if (!shadow?.audioReady) return 'shadow-not-ready';
-        if (this.startedAt && Number.isFinite(now) && now - this.startedAt < SHADOW_DRIFT_STARTUP_GUARD_MS) return 'rust-startup';
-        if (this.lastShadowDriftRouteChangedAt && Number.isFinite(now) && now - this.lastShadowDriftRouteChangedAt < SHADOW_DRIFT_ROUTE_GUARD_MS) return 'routing-change';
-        if (this.lastShadowDriftPlaybackCommandAt && Number.isFinite(now) && now - this.lastShadowDriftPlaybackCommandAt < SHADOW_DRIFT_PLAYBACK_COMMAND_GUARD_MS) return 'playback-command';
-        if (transport?.startCause === 'manual-jump' && Number.isFinite(identityAgeMs) && identityAgeMs < SHADOW_DRIFT_PLAYER_SWITCH_GUARD_MS + 2000) return 'manual-jump';
-        if (transport?.mixActive === true) return 'mix-active';
-        if (transport?.mixPhase === 'cola-fade') return 'fade-tail';
-        if (Number.isFinite(identityAgeMs) && identityAgeMs < SHADOW_DRIFT_PLAYER_SWITCH_GUARD_MS) return 'player-switch';
-        if (nowPlaying?.player && transport?.player && nowPlaying.player !== transport.player) return 'player-mismatch';
-        if (transport?.mixReferencePlayer && transport.mixReferencePlayer !== transport.player) return 'mix-reference';
-        if (durationMs > 0 && durationMs <= SHADOW_DRIFT_SHORT_ITEM_MS) return 'short-item';
-        if (transportPositionMs < SHADOW_DRIFT_EDGE_GUARD_MS) return 'track-start';
-        if (Number.isFinite(remainingMs) && remainingMs < SHADOW_DRIFT_EDGE_GUARD_MS) return 'track-end';
-        if (Number.isFinite(absDriftMs) && absDriftMs >= SHADOW_DRIFT_LARGE_DESYNC_MS) return 'large-shadow-desync';
-        return '';
-    }
-
-    markShadowDriftCommand(command = {}) {
-        const cmd = command?.cmd || '';
-        const now = Date.now();
-        if (cmd === 'route' || cmd === 'devices') {
-            this.lastShadowDriftRouteChangedAt = now;
-            return;
-        }
-        if (['loadAudio', 'play', 'stop', 'seek', 'nowPlaying'].includes(cmd)) {
-            this.lastShadowDriftPlaybackCommandAt = now;
         }
     }
 
@@ -387,6 +293,27 @@ class RustAudioEngineProbe {
             return pending;
         }
         if (requestId) return null;
+        // FIX BUG CRÍTICO (editor abre vacío sin caché de peaks): los mensajes
+        // PUSH del motor llegan sin `requestId` — son emitidos espontáneamente
+        // por el bucle de 100 ms (`status`), por el tap del encoder (`pcmChunk`)
+        // o por eventos asíncronos (`timeLocutionEnded`/`timeLocutionStarted`).
+        // Si tomáramos el primer pending de la cola con uno de estos, lo
+        // resolveríamos con la respuesta equivocada — el frontend recibiría
+        // `success: true` con un mensaje de tipo distinto al que esperaba,
+        // dejando `message.min/max/bins` en undefined.
+        //
+        // Ejemplo del bug: 3 `getPeaks` en cola, llega un `status` push antes
+        // de que termine la decodificación → `takePendingForMessage` lo asigna
+        // al primer pending → el frontend hace `new Float32Array(undefined)`
+        // y obtiene un buffer vacío → editor abre con pistas en blanco.
+        //
+        // Los mensajes PUSH se manejan por separado vía `onEngineEvent` y
+        // `this.lastStatus`/`this.lastDevices`. NO deben tocar la cola pending.
+        if (message.type === 'status') return null;
+        if (message.type === 'devices' && !requestId) return null;
+        if (message.type === 'pcmChunk') return null;
+        if (message.type === 'timeLocutionEnded') return null;
+        if (message.type === 'timeLocutionStarted') return null;
         const pending = this.pending.shift();
         if (pending?.requestId) this.pendingByRequestId.delete(pending.requestId);
         return pending || null;
@@ -401,22 +328,28 @@ class RustAudioEngineProbe {
         });
     }
 
-    command(command = {}) {
+    command(command = {}, timeoutMs = null) {
         const started = this.start();
         if (!started.success) return Promise.resolve(started);
+        // getPeaks decodifica el audio completo; necesita más tiempo que el default de 3 s.
+        // El caller puede pasar _timeoutMs en el objeto comando o como segundo argumento.
+        const effectiveTimeout = timeoutMs
+            ?? command._timeoutMs
+            ?? (command.cmd === 'getPeaks' ? 20000 : 3000);
         return new Promise(resolve => {
             const requestId = command.requestId || `rust-${Date.now()}-${this.nextRequestId++}`;
-            const commandWithRequestId = { ...command, requestId };
+            // Extraer _timeoutMs para no enviarlo al proceso Rust
+            const { _timeoutMs: _omit, ...commandClean } = command;
+            const commandWithRequestId = { ...commandClean, requestId };
             const timeout = setTimeout(() => {
                 this.pending = this.pending.filter(item => item.resolve !== resolve);
                 this.pendingByRequestId.delete(requestId);
                 resolve({ success: false, error: 'Timeout esperando respuesta RustAudio.' });
-            }, 3000);
+            }, effectiveTimeout);
             const pending = { resolve, timeout, command: commandWithRequestId, requestId };
             this.pending.push(pending);
             this.pendingByRequestId.set(requestId, pending);
             try {
-                this.markShadowDriftCommand(commandWithRequestId);
                 this.logEvent('command', { command: commandWithRequestId });
                 this.process.stdin.write(`${JSON.stringify(commandWithRequestId)}\n`);
             } catch (err) {
@@ -460,8 +393,6 @@ class RustAudioEngineProbe {
             lastStatus: this.lastStatus,
             lastDevices: this.lastDevices,
             lastError: this.lastError,
-            shadowDrift: this.lastShadowDrift,
-            shadowDriftStats: this.shadowDriftStats,
             ...extra
         };
         try {
@@ -482,8 +413,6 @@ class RustAudioEngineProbe {
             lastStatus: this.lastStatus,
             lastDevices: this.lastDevices,
             lastError: this.lastError,
-            shadowDrift: this.lastShadowDrift,
-            shadowDriftStats: this.shadowDriftStats,
             reportPath: this.reportPath,
             snapshotPath: path.join(this.rootDir, 'config', 'audio_engine_snapshot.json')
         };

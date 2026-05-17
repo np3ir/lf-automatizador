@@ -1,4 +1,4 @@
-const { ipcRenderer } = require('electron');
+﻿const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -8,7 +8,7 @@ const encoderPrefsPath = path.join(configDir, 'encoder_prefs.json');
 
 let encPrefs = {
     type: 'icecast', ip: '', port: '', pass: '', mount: '', 
-    source: 'master', mic: '', codec: 'aac', bitrate: '128'
+    source: 'master', mic: '', codec: 'aac', bitrate: '128', encoderProvider: 'auto', tapPoint: 'postFx'
 };
 
 if (fs.existsSync(encoderPrefsPath)) {
@@ -21,6 +21,10 @@ function normalizeEncoderPrefs(raw = {}) {
     const password = raw.password || raw.pass || '';
     const micId = raw.micId || raw.mic || '';
     const bitrate = String(raw.bitrate || '128').replace(/[^\d]/g, '') || '128';
+    const providerLower = String(raw.encoderProvider || 'auto').trim().toLowerCase();
+    const encoderProvider = providerLower === 'rust' || providerLower === 'rustaudio' || providerLower === 'rustaudioengine'
+        ? 'rust'
+        : 'auto';
     return {
         ...raw,
         type: serverType,
@@ -33,7 +37,9 @@ function normalizeEncoderPrefs(raw = {}) {
         port: String(raw.port || '').trim(),
         mount: String(raw.mount || '').trim(),
         source: raw.source === 'mic' ? 'mic' : 'master',
+        tapPoint: raw.tapPoint === 'preFx' ? 'preFx' : 'postFx',
         codec: raw.codec === 'mp3' ? 'mp3' : 'aac',
+        encoderProvider,
         bitrate
     };
 }
@@ -55,6 +61,9 @@ const throughputCanvas = document.getElementById('enc-throughput-canvas');
 const throughputValuesEl = document.getElementById('enc-throughput-values');
 const throughputScaleEl = document.getElementById('enc-throughput-scale');
 const encoderHealthLineEl = document.getElementById('enc-health-line');
+const inputMeterEl = document.getElementById('enc-input-meter');
+const inputMeterValuesEl = document.getElementById('enc-input-meter-values');
+const inputMeterFillEl = document.getElementById('enc-input-meter-fill');
 const throughputCtx = throughputCanvas ? throughputCanvas.getContext('2d') : null;
 
 const typeSel = document.getElementById('enc-type');
@@ -63,7 +72,8 @@ const sourceSel = document.getElementById('enc-source');
 const micRow = document.getElementById('row-mic');
 const micSel = document.getElementById('enc-mic');
 const codecSel = document.getElementById('enc-codec');
-const bitrateSel = document.getElementById('enc-bitrate');
+const bitrateSel = document.getElementById('enc-bitrate'); const encoderProviderSel = document.getElementById('sel-encoder-provider');
+const tapPointSel = document.getElementById('enc-tap-point');
 
 let isConnected = false;
 let intentionalStop = false;
@@ -79,6 +89,7 @@ let throughputPeakKbps = 0;
 let throughputCurrentKbps = 0;
 let throughputScaleKbps = 128;
 let lastThroughputAt = 0;
+let lastInputMeterAt = 0;
 const THROUGHPUT_SAMPLE_LIMIT = 120;
 
 function getConfiguredBitrateKbps() {
@@ -109,6 +120,13 @@ function resetThroughputStats() {
         encoderHealthLineEl.classList.remove('warn');
     }
     drawThroughputGraph();
+}
+
+function resetInputMeter() {
+    lastInputMeterAt = 0;
+    if (inputMeterValuesEl) inputMeterValuesEl.textContent = 'Pico: -- dB | RMS: -- dB';
+    if (inputMeterFillEl) inputMeterFillEl.style.width = '0%';
+    if (inputMeterEl) inputMeterEl.classList.remove('warn');
 }
 
 function formatKbps(value) {
@@ -224,6 +242,30 @@ function updateCaptureHealth(report = {}) {
     }
 }
 
+function formatDb(value) {
+    const db = Number(value);
+    if (!Number.isFinite(db) || db <= -119) return '-inf';
+    return `${db.toFixed(1)} dB`;
+}
+
+function updateInputMeter(report = {}) {
+    lastInputMeterAt = Date.now();
+    const peakDb = Number(report.peakDb);
+    const rmsDb = Number(report.rmsDb);
+    const safePeakDb = Number.isFinite(peakDb) ? Math.max(-60, Math.min(0, peakDb)) : -60;
+    const percent = Math.max(0, Math.min(100, ((safePeakDb + 60) / 60) * 100));
+    const silentMs = Number(report.silentMs) || 0;
+    const source = report.captureProvider || report.source || 'fuente';
+    const silent = report.hasSignal === false && silentMs > 4000;
+
+    if (inputMeterFillEl) inputMeterFillEl.style.width = `${percent.toFixed(1)}%`;
+    if (inputMeterValuesEl) {
+        const silentText = silent ? ` | silencio ${Math.round(silentMs / 1000)}s` : '';
+        inputMeterValuesEl.textContent = `Pico: ${formatDb(peakDb)} | RMS: ${formatDb(rmsDb)} | ${source}${silentText}`;
+    }
+    if (inputMeterEl) inputMeterEl.classList.toggle('warn', silent);
+}
+
 function encLog(msg, type = 'info') {
     const d = new Date().toLocaleTimeString('es-PE', { hour12: false });
     let color = '#ccc';
@@ -259,7 +301,7 @@ function scheduleReconnect() {
     }, delaySec * 1000);
 }
 
-// 🔥 CARGAR MICRÓFONOS SOLO CUANDO SE NECESITA
+// ðŸ”¥ CARGAR MICRÃ“FONOS SOLO CUANDO SE NECESITA
 async function loadMicrophones() {
     if (micDevicesLoaded) return;
 
@@ -274,7 +316,7 @@ async function loadMicrophones() {
         mics.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m.deviceId; 
-            opt.text = m.label || `Micrófono ${m.deviceId.substring(0,5)}`;
+            opt.text = m.label || `MicrÃ³fono ${m.deviceId.substring(0,5)}`;
             micSel.appendChild(opt);
         });
 
@@ -283,10 +325,10 @@ async function loadMicrophones() {
         }
 
         micDevicesLoaded = true;
-        encLog("Micrófonos cargados correctamente.", "success");
+        encLog("MicrÃ³fonos cargados correctamente.", "success");
 
     } catch (e) {
-        encLog("Error al acceder a micrófonos.", "error");
+        encLog("Error al acceder a micrÃ³fonos.", "error");
     }
 }
 
@@ -313,7 +355,7 @@ sourceSel.addEventListener('change', async () => {
     micRow.style.display = isMic ? 'flex' : 'none';
 
     if (isMic) {
-        await loadMicrophones(); // 🔥 SOLO AQUÍ
+        await loadMicrophones(); // ðŸ”¥ SOLO AQUÃ
     }
 });
 
@@ -332,7 +374,30 @@ document.getElementById('enc-mount').value = encPrefs.mount;
 typeSel.value = encPrefs.type;
 sourceSel.value = encPrefs.source;
 codecSel.value = encPrefs.codec;
-bitrateSel.value = encPrefs.bitrate;
+bitrateSel.value = encPrefs.bitrate; if (encoderProviderSel) encoderProviderSel.value = encPrefs.encoderProvider || 'auto';
+if (tapPointSel) tapPointSel.value = encPrefs.tapPoint || 'postFx';
+
+// FIX BUG ENCODER PRE-FX: notificar al renderer principal del tapPoint guardado
+// en cuanto se abre la ventana del encoder. Setear `tapPointSel.value` no
+// dispara el evento `change`, así que el motor Rust se quedaba con el default
+// postFx aunque la UI mostrara "Pre-FX". Este send arranca el listener
+// `encoder-tap-point-changed` del renderer y propaga el valor real al motor.
+ipcRenderer.send('encoder-tap-point-changed', { tapPoint: encPrefs.tapPoint || 'postFx' });
+
+// FIX: cambio de Pre-FX/Post-FX en caliente. Cuando el operador conmuta el
+// selector tapPoint, persistimos la preferencia Y notificamos al renderer
+// principal para que reenvíe el `route` al motor Rust con el nuevo sourceMode.
+// El motor cambia el atómico `encoder_tap_mode` sample-by-sample y el chunk
+// PCM siguiente sale del ring del modo nuevo — sin reiniciar el encoder.
+if (tapPointSel) {
+    tapPointSel.addEventListener('change', () => {
+        encPrefs.tapPoint = tapPointSel.value === 'preFx' ? 'preFx' : 'postFx';
+        saveEncoderPrefs();
+        // Notifica al renderer principal vía IPC que la preferencia cambió.
+        // El renderer recibe 'encoder-tap-point-changed' y re-emite el route.
+        ipcRenderer.send('encoder-tap-point-changed', { tapPoint: encPrefs.tapPoint });
+    });
+}
 
 typeSel.dispatchEvent(new Event('change'));
 sourceSel.dispatchEvent(new Event('change'));
@@ -350,7 +415,7 @@ function updateTimer() {
 function startConnection(options = {}) {
     clearReconnectTimer();
     const password = document.getElementById('enc-pass').value.trim();
-    const bitrate = bitrateSel.value.replace(/[^\d]/g, '');
+    const bitrate = bitrateSel.value.replace(/[^\d]/g, ''); const encoderProvider = encoderProviderSel ? encoderProviderSel.value : 'auto';
     const config = {
         serverType: typeSel.value,
         type: typeSel.value,
@@ -363,7 +428,9 @@ function startConnection(options = {}) {
         micId: micSel.value,
         mic: micSel.value,
         codec: codecSel.value,
-        bitrate
+        bitrate,
+        encoderProvider,
+        tapPoint: tapPointSel?.value === 'preFx' ? 'preFx' : 'postFx'
     };
 
     const portNum = Number(config.port);
@@ -413,7 +480,7 @@ btnConnect.addEventListener('click', () => {
         autoReconnectEnabled = false;
         clearReconnectTimer();
         ipcRenderer.send('stop-encoder');
-        encLog("Deteniendo emisión...", "warn");
+        encLog("Deteniendo emisiÃ³n...", "warn");
     } else {
         autoReconnectEnabled = true;
         intentionalStop = false;
@@ -456,7 +523,10 @@ ipcRenderer.on('encoder-status', (e, status) => {
         clearInterval(timerInterval);
         timerInterval = null;
         timerEl.innerText = '00:00:00';
-        if (intentionalStop || !autoReconnectEnabled) resetThroughputStats();
+        if (intentionalStop || !autoReconnectEnabled) {
+            resetThroughputStats();
+            resetInputMeter();
+        }
 
         if (autoReconnectEnabled && !intentionalStop) scheduleReconnect();
     }
@@ -483,5 +553,10 @@ ipcRenderer.on('encoder-capture-health', (e, report) => {
     updateCaptureHealth(report);
 });
 
+ipcRenderer.on('encoder-input-meter', (e, report) => {
+    updateInputMeter(report);
+});
+
 resetThroughputStats();
+resetInputMeter();
 encLog("Encoder listo.", "info");

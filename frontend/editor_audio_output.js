@@ -31,6 +31,8 @@ function createEditorOutputRouter(audioCtx) {
         if (nextMode === 'direct') {
             routeNode.connect(audioCtx.destination);
             try { previewEl.pause(); } catch (err) {}
+        } else if (nextMode === 'muted') {
+            try { previewEl.pause(); } catch (err) {}
         } else {
             routeNode.connect(streamNode);
         }
@@ -43,6 +45,10 @@ function createEditorOutputRouter(audioCtx) {
 
     async function applyRouting() {
         const audioPrefs = loadAudioPrefs();
+        if (audioPrefs.audioEngineMode === 'rustAudio') {
+            setOutputMode('muted');
+            return;
+        }
         const targetDeviceId = audioPrefs.outCue || audioPrefs.outMain || 'default';
         const wantsDefaultSink = !targetDeviceId || targetDeviceId === 'default';
 

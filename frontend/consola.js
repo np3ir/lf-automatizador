@@ -145,11 +145,19 @@ let vuDecayAnimationStarted = false;
 const DIAGNOSTICS_REFRESH_INTERVAL_MS = 1000;
 const VU_STALE_DECAY_AFTER_MS = 450;
 const VU_DECAY_STEP = 6;
-const RUST_METER_VISUAL_GAIN = 2.8;
 const RUST_METER_HOLD_MS = 700;
 let lastRustMeterUpdateAt = 0;
 let lastRustMeters = [];
 let diagnosticsExpanded = localStorage.getItem('lf-console-diagnostics-expanded') === '1';
+
+function rustMeterRawToVisualPercent(value) {
+    const amp = Math.max(0, Math.min(100, Number(value) || 0)) / 100;
+    if (amp <= 0.0001) return 0;
+    const db = 20 * Math.log10(amp);
+    if (db < -36) return 0;
+    if (db > 3) return 100;
+    return ((db + 36) / 39) * 100;
+}
 
 function refreshMeters(levels = currentLevels) {
     stripDefs.forEach(({ key }) => {
@@ -175,22 +183,50 @@ function rustMeterBusToStripKey(bus = '') {
 
 function paintRustMetersToStrips(meters = []) {
     const byStrip = new Map();
+    const playlistMode = currentLevels?.diagnostics?.devices?.playlistMode || 'disabled';
     meters.forEach(meter => {
         const stripKey = rustMeterBusToStripKey(meter?.bus);
         if (!stripKey) return;
         const rawLeft = Math.max(0, Math.min(100, Number(meter.left) || 0));
         const rawRight = Math.max(0, Math.min(100, Number(meter.right) || 0));
-        const left = Math.max(0, Math.min(100, rawLeft * RUST_METER_VISUAL_GAIN));
-        const right = Math.max(0, Math.min(100, rawRight * RUST_METER_VISUAL_GAIN));
+        const left = rustMeterRawToVisualPercent(rawLeft);
+        const right = rustMeterRawToVisualPercent(rawRight);
         if (left <= 0 && right <= 0) return;
         const current = byStrip.get(stripKey) || { left: 0, right: 0, db: Number.NEGATIVE_INFINITY };
-        const peak = Math.max(left, right);
+        const rawPeak = Math.max(rawLeft, rawRight);
         byStrip.set(stripKey, {
             left: Math.max(current.left, left),
             right: Math.max(current.right, right),
-            db: Math.max(current.db, peak > 0 ? 20 * Math.log10(peak / 100) : Number.NEGATIVE_INFINITY)
+            db: Math.max(current.db, rawPeak > 0 ? 20 * Math.log10(rawPeak / 100) : Number.NEGATIVE_INFINITY)
         });
     });
+
+    const hasExplicitMasterMeter = byStrip.has('pgm');
+    if (!hasExplicitMasterMeter) {
+        // El MASTER refleja TODOS los buses de programa que viajan al aire,
+        // no solo las playlists. Esto coincide con `is_program_bus` del motor
+        // Rust: master|jingle|cartwall|pl1..pl4. Sin esto, un pisador o una
+        // locución de hora lanzada desde la botonera (bus 'jingle') o un
+        // cartwall (bus 'cartwall') sonaba al aire pero no movía el medidor
+        // del MASTER → falso "Detenido". Cuando playlistMode = 'independent',
+        // las playlists tienen su propia salida y NO suman al master, pero
+        // jingle/cartwall siempre sí (son pisadores sobre el programa).
+        const buses = playlistMode === 'independent'
+            ? ['jingle', 'cartwall']
+            : ['jingle', 'cartwall', 'pl1', 'pl2', 'pl3', 'pl4'];
+        const masterSum = buses.reduce((acc, key) => {
+            const level = byStrip.get(key);
+            if (!level) return acc;
+            return {
+                left: Math.max(acc.left, level.left),
+                right: Math.max(acc.right, level.right),
+                db: Math.max(acc.db, level.db)
+            };
+        }, { left: 0, right: 0, db: Number.NEGATIVE_INFINITY });
+        if (masterSum.left > 0 || masterSum.right > 0) {
+            byStrip.set('pgm', masterSum);
+        }
+    }
 
     byStrip.forEach((level, stripKey) => {
         applyChannelLevel(stripKey, 'l', level.left);
@@ -201,12 +237,13 @@ function paintRustMetersToStrips(meters = []) {
     return byStrip.size;
 }
 
-function applyRustMetersToStrips(meters = []) {
-    const painted = paintRustMetersToStrips(meters);
-    if (painted > 0) {
+function applyRustMetersToStrips(meters = [], { paint = true } = {}) {
+    const painted = paint ? paintRustMetersToStrips(meters) : 0;
+    if (Array.isArray(meters) && meters.length > 0) {
         lastRustMeters = meters;
         lastRustMeterUpdateAt = performance.now();
     }
+    return painted;
 }
 
 function decayPercent(value) {
@@ -321,6 +358,13 @@ function renderSummaryLines(lines = []) {
     }).join('');
 }
 
+function renderOperatorEngineState(state = {}) {
+    const el = document.getElementById('operator-engine-state');
+    if (!el) return;
+    el.dataset.tone = state.tone || 'web';
+    el.innerText = state.label || 'Motor al aire: Web Audio API';
+}
+
 function setDiagnosticsExpanded(expanded) {
     diagnosticsExpanded = !!expanded;
     localStorage.setItem('lf-console-diagnostics-expanded', diagnosticsExpanded ? '1' : '0');
@@ -370,6 +414,72 @@ function renderMixDiagnostics(mix = {}) {
     renderLines('diag-mix', lines, mix.active ? 'diag-warning' : '');
 }
 
+function buildRustPcmLiveMixPlan() {
+    const mixPlayers = currentLevels?.diagnostics?.mix?.players;
+    const plan = Array.isArray(mixPlayers) ? mixPlayers
+        .filter(player => player?.path && (player.active || player.loaded))
+        .map(player => ({
+            player: player.id,
+            path: player.path,
+            gain: Number.isFinite(Number(player.gain)) ? Number(player.gain) : 1,
+            positionMs: Math.max(0, Math.round((Number(player.currentTime) || 0) * 1000)),
+            active: player.active !== false,
+            title: player.title || ''
+        })) : [];
+
+    const livePlayers = currentLevels?.diagnostics?.players;
+    const jinglePlayer = Array.isArray(livePlayers)
+        ? livePlayers.find(player => player?.id === 'jingle-player' && player.active && player.path)
+        : null;
+    if (jinglePlayer) {
+        plan.push({
+            player: 'jingle-player',
+            path: jinglePlayer.path,
+            gain: 1,
+            positionMs: Math.max(0, Math.round((Number(jinglePlayer.currentTime) || 0) * 1000)),
+            active: true,
+            title: 'jingle/pisador'
+        });
+    }
+
+    const overlays = currentLevels?.diagnostics?.overlays || {};
+    const cartwallSources = overlays.cartwallMode === 'master' && Array.isArray(overlays.cartwallSources)
+        ? overlays.cartwallSources
+        : [];
+    cartwallSources.forEach((source, index) => {
+        if (!source?.path) return;
+        plan.push({
+            player: source.id || `cartwall-${index + 1}`,
+            path: source.path,
+            gain: Number.isFinite(Number(source.gain)) ? Number(source.gain) : 1,
+            positionMs: Math.max(0, Math.round((Number(source.currentTime) || 0) * 1000)),
+            active: true,
+            title: source.title || 'cartwall'
+        });
+    });
+
+    const overlayDropSources = Array.isArray(overlays.overlayDropSources) ? overlays.overlayDropSources : [];
+    overlayDropSources.forEach((source, index) => {
+        if (!source?.path) return;
+        plan.push({
+            player: source.id || `overlay-${index + 1}`,
+            path: source.path,
+            gain: Number.isFinite(Number(source.gain)) ? Number(source.gain) : 1,
+            positionMs: Math.max(0, Math.round((Number(source.currentTime) || 0) * 1000)),
+            active: true,
+            title: source.title || 'pisador'
+        });
+    });
+
+    const seen = new Set();
+    return plan.filter(item => {
+        const key = `${item.player}|${item.path}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    }).slice(0, 8);
+}
+
 function renderFxDiagnostics(fx = {}) {
     const chain = Array.isArray(fx.chain) && fx.chain.length ? fx.chain.join(' -> ') : 'sin cadena';
     const active = Array.isArray(fx.activeModules) && fx.activeModules.length ? fx.activeModules.join(', ') : 'bypass';
@@ -395,25 +505,8 @@ function getRustProbeFromStatus(status = {}, fallback = {}) {
         reportPath: status.reportPath || fallback.reportPath || '',
         lastStatus: status.lastStatus || fallback.lastStatus || null,
         lastDevices: status.lastDevices || fallback.lastDevices || null,
-        lastError: status.lastError || fallback.lastError || '',
-        shadowDrift: status.shadowDrift || fallback.shadowDrift || null,
-        shadowDriftStats: status.shadowDriftStats || fallback.shadowDriftStats || null
+        lastError: status.lastError || fallback.lastError || ''
     };
-}
-
-function summarizeRustDrift(rustProbe = {}) {
-    const drift = rustProbe.shadowDrift || null;
-    const stats = rustProbe.shadowDriftStats || {};
-    if (rustProbe.lastError) return `Rust: error ${rustProbe.lastError}`;
-    if (!drift) return 'Rust: esperando datos';
-    if (drift.severity === 'warn') {
-        const sign = Number(drift.driftMs) >= 0 ? '+' : '';
-        return `Rust: revisar drift ${sign}${drift.driftMs ?? '-'} ms`;
-    }
-    if (drift.severity === 'spike') return `Rust: pico leve ${drift.driftMs ?? '-'} ms`;
-    if (drift.severity === 'ignored') return `Rust: estable, ignorando ${drift.ignoreReason || 'transitorio'}`;
-    const warnText = stats.warnSamples ? `, ${stats.warnSamples} warning` : '';
-    return `Rust: estable${warnText}`;
 }
 
 function summarizeMonitor(latency = {}, fx = {}) {
@@ -450,6 +543,56 @@ function summarizeEncoderSource(encoder = {}, rustEncoder = {}) {
         : `Encoder: detenido | ${encoder.source && encoder.source !== 'sin fuente' ? encoder.source : 'sin fuente'}${rustEncoder.owner ? ` | Rust: ${rustEncoder.active ? 'activo' : 'detenido'}` : ''}`;
 }
 
+function resolveOperatorEngineState(diagnostics = {}, rustProbe = {}) {
+    const encoder = diagnostics.encoder || {};
+    const rustEncoder = rustProbe.lastStatus?.encoder || {};
+    const state = encoder.active ? encoder : rustEncoder;
+    const requestedOwner = state.requestedOwner || encoder.requestedOwner || '';
+    const owner = state.owner || encoder.owner || '';
+    const captureProvider = state.captureProvider || encoder.captureProvider || owner;
+    const provider = String(state.encoderProvider || encoder.encoderProvider || '').toLowerCase();
+    const fallbackReason = state.fallbackReason || encoder.fallbackReason || '';
+    const rustRequested = requestedOwner === 'rustAudioEngine'
+        || provider === 'rust'
+        || diagnostics.requestedMode === 'rustAudio';
+    const rustCarryingAudio = state.active === true
+        && (owner === 'rustAudioEngine' || captureProvider === 'rustAudioEngine')
+        && state.pcmBridgeReady === true;
+    const fellBackToWebAudio = rustRequested
+        && state.active === true
+        && (owner === 'webAudioRenderer' || captureProvider === 'webAudioRenderer');
+
+    if (rustCarryingAudio) {
+        return { tone: 'rust', label: 'Motor al aire: Rust PCM bridge' };
+    }
+    if (diagnostics.runtime?.playlistOwner === 'rustAudioEngine') {
+        return { tone: 'rust', label: 'Motor al aire: Rust dueño de Playlist A/B' };
+    }
+    if (diagnostics.runtime?.rustPlaylistOwnerRequested) {
+        const reason = diagnostics.runtime.rustPlaylistOwnerFallbackReason
+            ? ` (${diagnostics.runtime.rustPlaylistOwnerFallbackReason})`
+            : '';
+        return { tone: 'fallback', label: `Motor al aire: Web Audio API por fallback de Rust A/B${reason}` };
+    }
+    if (fellBackToWebAudio) {
+        const suffix = fallbackReason ? ` (${fallbackReason})` : '';
+        return { tone: 'fallback', label: `Motor al aire: Web Audio API por fallback de Rust${suffix}` };
+    }
+    if (rustRequested) {
+        const hasPlayers = Array.isArray(rustProbe.lastStatus?.players) && rustProbe.lastStatus.players.length > 0;
+        return {
+            tone: hasPlayers ? 'rust' : 'fallback',
+            label: hasPlayers
+                ? 'Motor al aire: Rust con players activos'
+                : 'Motor al aire: Rust solicitado, sin players activos'
+        };
+    }
+    if (rustProbe.lastError) {
+        return { tone: 'warn', label: `Motor al aire: Web Audio API, Rust con error` };
+    }
+    return { tone: 'web', label: 'Motor al aire: Web Audio API' };
+}
+
 function renderOperatorSummary({ diagnostics = {}, rustProbe = {}, activeMode = 'webAudio', requestedMode = 'webAudio', adapter = '' } = {}) {
     const latency = diagnostics.latency || {};
     const fx = diagnostics.fx || {};
@@ -457,30 +600,28 @@ function renderOperatorSummary({ diagnostics = {}, rustProbe = {}, activeMode = 
     const encoder = diagnostics.encoder || {};
     const rustEncoder = rustProbe.lastStatus?.encoder || {};
     const warnings = Array.isArray(diagnostics.warnings) ? diagnostics.warnings : [];
-    const drift = rustProbe.shadowDrift || {};
-    const shadow = Array.isArray(rustProbe.lastStatus?.players)
-        ? rustProbe.lastStatus.players.find(player => player.id === rustProbe.lastStatus?.transport?.player)
-            || rustProbe.lastStatus.players.find(player => player.id === 'shadow-active')
-        : null;
-    const shadowText = shadow
-        ? `Rust shadow: ${shadow.id || '-'} ${shadow.audioReady ? 'listo' : shadow.status || 'sin audio'} | delta ${Number.isFinite(Number(drift.driftMs)) ? `${Number(drift.driftMs) >= 0 ? '+' : ''}${drift.driftMs} ms` : '-'} | ${drift.severity || 'ok'}${drift.ignoreReason ? ` (${drift.ignoreReason})` : ''}`
-        : 'Rust shadow: esperando datos';
     const rustState = rustProbe.running
         ? 'activo'
         : rustProbe.available || rustProbe.lastStatus
             ? 'disponible'
             : 'no disponible';
     const encoderLine = summarizeEncoderSource(encoder, rustEncoder);
+    // El panel de resumen solo muestra datos del motor Rust.
+    // Las latencias del AudioContext de Web Audio (masterMs/monitorMs/cueMs) no aplican al motor Rust.
+    const lineaMotor = rustProbe.running
+        ? activeMode === 'webAudio'
+            ? `Motor Rust: en línea | AVISO: WebAudio aún activo como motor de audio`
+            : `Motor Rust: en línea`
+        : activeMode === 'webAudio'
+            ? `Motor Rust: ${rustState} | AVISO: WebAudio activo (Rust no disponible)`
+            : `Motor Rust: ${rustState}`;
+
     const summary = [
-        `Master: ${latency.masterMs ?? 0} ms`,
-        `Monitor: ${latency.monitorMs ?? '-'} ms | ${fx.monitorPath || 'post-FX'}`,
-        `Cue: ${latency.cueMs ?? '-'} ms`,
-        shadowText,
-        `Motor: ${activeMode} solicitado ${requestedMode} | Rust ${rustState}`,
+        lineaMotor,
         encoderLine,
         summarizePlayback(rustProbe, mix),
         `Avisos: ${warnings.length ? warnings.join(' | ') : 'sin errores nuevos'}`
-    ];
+    ].filter(Boolean);
     renderSummaryLines(summary);
 }
 
@@ -536,6 +677,20 @@ async function invokeAudioEngineContract(type, payload = {}) {
     if (response?.result?.ok !== true) {
         throw new Error(response?.result?.error || response?.error || `AudioEngineClient rechazo ${type}.`);
     }
+
+    // Puerta de acceso: la consola es exclusiva del motor Rust.
+    // Si WebAudio respondió a un comando de la consola, se registra el acceso en el reporte.
+    const modoRespuesta = response?.diagnostics?.activeMode || '';
+    const adapterRespuesta = response?.diagnostics?.adapter || '';
+    if (modoRespuesta === 'webAudio' || adapterRespuesta.includes('WebAudio')) {
+        ipcRenderer.send('log-web-audio-acceso-consola', {
+            origen: 'consola.invokeAudioEngineContract',
+            comando: type,
+            adapter_detectado: adapterRespuesta || 'WebAudioEngineAdapter',
+            motivo_rechazo: 'La consola de audio virtual es exclusiva del motor Rust'
+        });
+    }
+
     if (response?.diagnostics) {
         currentLevels = { ...currentLevels, diagnostics: response.diagnostics };
         refreshDiagnostics(response.diagnostics);
@@ -742,11 +897,6 @@ function formatReportEntry(entry) {
         if (msg.type === 'error') return `${time} error ${msg.message || ''}`.trim();
         return `${time} message ${msg.type || ''}`.trim();
     }
-    if (entry.type === 'shadow-drift') {
-        const drift = entry.drift || {};
-        const reason = drift.ignoreReason ? ` ${drift.ignoreReason}` : '';
-        return `${time} drift ${drift.player || ''} ${drift.driftMs ?? '-'} ms ${drift.severity || ''}${reason}`.trim();
-    }
     if (entry.error) return `${time} ${entry.type || 'error'} ${entry.error}`.trim();
     return `${time} ${entry.type || 'evento'}`.trim();
 }
@@ -781,7 +931,14 @@ function refreshDiagnostics(diagnostics = {}) {
     const rustProbe = diagnostics.rustProbe || {};
     const rustAvailable = !!(diagnostics.rustAvailable || rustProbe.available || rustProbe.running || rustProbe.lastStatus);
     const rustLabel = rustAvailable ? (rustProbe.running ? 'Rust probe: activo' : 'Rust probe: disponible') : 'Rust probe: no disponible';
-    setText('diag-engine', `Motor: ${activeMode} | Solicitado: ${requestedMode} | ${adapter} | ${rustLabel}`);
+    // Etiqueta del motor: enfocada en Rust. WebAudio aparece solo como advertencia de migración.
+    const etiquetaMotor = rustProbe.running
+        ? `Motor Rust: en línea | ${rustLabel}`
+        : activeMode === 'webAudio'
+            ? `${rustLabel} | Fallback WebAudio activo`
+            : `${rustLabel}`;
+    setText('diag-engine', etiquetaMotor);
+    renderOperatorEngineState(resolveOperatorEngineState(diagnostics, rustProbe));
     setText('diag-updated', diagnostics.updatedAt ? new Date(diagnostics.updatedAt).toLocaleTimeString() : 'Diagnostico activo');
     renderOperatorSummary({ diagnostics, rustProbe, activeMode, requestedMode, adapter });
     renderMixDiagnostics(diagnostics.mix || {});
@@ -790,7 +947,7 @@ function refreshDiagnostics(diagnostics = {}) {
     const players = Array.isArray(diagnostics.players) ? diagnostics.players : [];
     const rustBuses = Array.isArray(rustProbe.lastStatus?.buses) ? rustProbe.lastStatus.buses : [];
     const rustMeters = Array.isArray(rustProbe.lastStatus?.meters) ? rustProbe.lastStatus.meters : [];
-    applyRustMetersToStrips(rustMeters);
+    applyRustMetersToStrips(rustMeters, { paint: false });
     const playerLines = players
         .filter(player => player.active || player.loaded || player.count)
         .map(player => {
@@ -802,7 +959,7 @@ function refreshDiagnostics(diagnostics = {}) {
             .filter(meter => (meter.left || meter.right) > 0)
             .map(meter => {
                 const rawPeak = Math.max(Number(meter.left) || 0, Number(meter.right) || 0);
-                const visualPeak = Math.min(100, rawPeak * RUST_METER_VISUAL_GAIN);
+                const visualPeak = rustMeterRawToVisualPercent(rawPeak);
                 return `rust meter ${meter.id}: ${Math.round(visualPeak)}% visual (${Math.round(rawPeak)}% real)`;
             }));
     renderLines('diag-players', playerLines);
@@ -861,36 +1018,6 @@ function refreshDiagnostics(diagnostics = {}) {
             latencyLines.push(`Rust PCM bridge: ${bridgeMode} | ${bridgeReason}`);
         }
     }
-    const transportPlayer = rustProbe.lastStatus?.transport?.player || '';
-    const shadow = Array.isArray(rustProbe.lastStatus?.players)
-        ? rustProbe.lastStatus.players.find(player => player.id === transportPlayer)
-            || rustProbe.lastStatus.players.find(player => player.id === 'shadow-active')
-        : null;
-    if (shadow) {
-        const transportPositionMs = rustProbe.lastStatus?.transport?.positionMs;
-        const shadowPositionMs = shadow.positionMs || 0;
-        const driftMs = Number.isFinite(transportPositionMs)
-            ? Math.round(shadowPositionMs - transportPositionMs)
-            : null;
-        const shadowState = shadow.audioReady
-            ? 'listo'
-            : shadow.status === 'stopped'
-                ? 'detenido'
-                : 'sin audio';
-        const driftText = driftMs === null ? '' : ` | delta ${driftMs >= 0 ? '+' : ''}${driftMs} ms`;
-        latencyLines.push(`Rust shadow ${shadow.id}: ${shadowState} ${Math.round(shadowPositionMs / 1000)}s${driftText}`);
-    }
-    if (rustProbe.shadowDrift) {
-        const drift = rustProbe.shadowDrift;
-        const sign = Number(drift.driftMs) >= 0 ? '+' : '';
-        const reason = drift.ignoreReason ? `: ${drift.ignoreReason}` : '';
-        latencyLines.push(`Rust drift monitor: ${drift.player || '-'} ${sign}${drift.driftMs ?? '-'} ms (${drift.severity || 'ok'}${reason})`);
-    }
-    if (rustProbe.shadowDriftStats?.samples || rustProbe.shadowDriftStats?.ignoredSamples) {
-        const stats = rustProbe.shadowDriftStats;
-        const desync = stats.largeDesyncSamples ? ` | desync ${stats.largeDesyncSamples}` : '';
-        latencyLines.push(`Rust drift stats: ${stats.samples ?? 0} estables | max ${stats.maxAbsDriftMs ?? 0} ms | prom ${stats.avgAbsDriftMs ?? 0} ms | picos ${stats.spikeSamples ?? 0} | warn ${stats.warnSamples ?? 0} | ign ${stats.ignoredSamples ?? 0}${desync}`);
-    }
     if (rustProbe.lastError) latencyLines.push(`Rust error: ${rustProbe.lastError}`);
     const warnings = Array.isArray(diagnostics.warnings) ? diagnostics.warnings : [];
     renderLines('diag-latency', latencyLines.concat(warnings), warnings.length ? 'diag-warning' : '');
@@ -901,10 +1028,33 @@ ipcRenderer.on('update-vu', (e, levels) => {
     currentLevels = levels || currentLevels;
     lastVuUpdateAt = performance.now();
     refreshMeters();
-    if (performance.now() - lastRustMeterUpdateAt <= RUST_METER_HOLD_MS) {
-        paintRustMetersToStrips(lastRustMeters);
+    const rustMeters = Array.isArray(currentLevels?.rustMeters) && currentLevels.rustMeters.length > 0
+        ? currentLevels.rustMeters
+        : currentLevels?.diagnostics?.rustProbe?.lastStatus?.meters;
+    if (Array.isArray(rustMeters) && rustMeters.length > 0) {
+        applyRustMetersToStrips(rustMeters, { paint: true });
     }
     refreshDiagnosticsThrottled();
+});
+
+// FASE EXTRA — Vúmetros en tiempo real desde el push directo del motor Rust.
+// Cada ~100 ms el motor emite un mensaje `status` con el array `meters`. Lo
+// recibimos sin pasar por el renderer principal — eso elimina el retraso
+// perceptual que reportó el operador. Pintamos los strips de inmediato y
+// guardamos los meters en `currentLevels.rustMeters` para que otros consumers
+// los vean también.
+ipcRenderer.on('audio-engine-rust-event', (e, message) => {
+    if (!message || message.type !== 'status') return;
+    const rustMeters = Array.isArray(message.meters) ? message.meters : null;
+    if (rustMeters && rustMeters.length > 0) {
+        lastVuUpdateAt = performance.now();
+        applyRustMetersToStrips(rustMeters, { paint: true });
+        // Mantenemos el cache para que `refreshMeters`/`refreshDiagnostics`
+        // siguientes vean datos frescos del motor Rust.
+        if (!currentLevels) currentLevels = {};
+        currentLevels.rustMeters = rustMeters;
+        currentLevels.rustMetersUpdatedAt = message.updatedAt || Date.now();
+    }
 });
 
 if (!vuDecayAnimationStarted) {
@@ -1274,6 +1424,55 @@ if (rustRealPlayersButton) {
             setTimeout(() => {
                 rustRealPlayersButton.disabled = false;
                 rustRealPlayersButton.innerText = 'Test players';
+            }, 1800);
+        }
+    });
+}
+
+const rustPcmFfmpegButton = document.getElementById('btn-rust-pcm-ffmpeg');
+if (rustPcmFfmpegButton) {
+    rustPcmFfmpegButton.addEventListener('click', async () => {
+        rustPcmFfmpegButton.disabled = true;
+        rustPcmFfmpegButton.innerText = 'Elige audio...';
+        try {
+            const filePath = await ipcRenderer.invoke('dialog:openFile');
+            const hasFile = !!filePath;
+            const liveMixPlan = hasFile ? [] : buildRustPcmLiveMixPlan();
+            rustPcmFfmpegButton.innerText = hasFile ? 'PCM audio...' : (liveMixPlan.length ? 'PCM vivo...' : 'PCM raiz...');
+            setText('diag-updated', hasFile
+                ? 'Probando Rust PCM -> FFmpeg con mezcla A/B, play/seek/pause/stop, sin transmitir...'
+                : liveMixPlan.length
+                    ? 'Probando Rust PCM -> FFmpeg con el mapa vivo de la consola, sin transmitir...'
+                    : 'Probando Rust PCM -> FFmpeg con PARA_PRUEBAS1/2 si existen; si no, silencio...');
+            const result = await ipcRenderer.invoke('rust-pcm-ffmpeg-test', {
+                durationMs: 6200,
+                filePath: filePath || '',
+                allowRootTestFiles: true,
+                players: liveMixPlan,
+                scripted: hasFile
+            });
+            const mb = ((Number(result?.stdoutBytes) || 0) / 1048576).toFixed(2);
+            const code = result?.ffmpegCode ?? 'n/a';
+            const gap = Math.round(Number(result?.maxStdoutGapMs) || 0);
+            if (result?.success !== true) {
+                throw new Error(result?.error || result?.bridgeError || `FFmpeg salio con codigo ${code}`);
+            }
+            rustPcmFfmpegButton.innerText = 'PCM OK';
+            const bridgeMode = result?.bridgeStatus?.mode || 'pcm';
+            const sourceMode = result?.usedLiveMixPlan
+                ? `mapa vivo (${Array.isArray(result.playerPlans) ? result.playerPlans.length : liveMixPlan.length} fuentes)`
+                : result?.usedDefaultFiles
+                    ? 'archivos raiz A/B'
+                    : (result?.secondFilePath ? 'mezcla A/B real' : bridgeMode);
+            setText('diag-updated', `Rust PCM -> FFmpeg OK: ${sourceMode}, ${mb} MB, max gap ${gap} ms, ffmpeg=${code}`);
+            refreshReportTail();
+        } catch (err) {
+            rustPcmFfmpegButton.innerText = 'PCM error';
+            setText('diag-updated', err.message || String(err));
+        } finally {
+            setTimeout(() => {
+                rustPcmFfmpegButton.disabled = false;
+                rustPcmFfmpegButton.innerText = 'Test PCM';
             }, 1800);
         }
     });

@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const cp = require('child_process'); 
+const cp = require('child_process');
 const os = require('os');
 const { Worker } = require('worker_threads');
 const nodeID3 = require('node-id3');
@@ -138,7 +138,30 @@ try { db.prepare("ALTER TABLE tracks ADD COLUMN file_mtime_ms INTEGER").run(); }
 
 let ffmpegPath = 'ffmpeg';
 try { ffmpegPath = require('ffmpeg-static') || 'ffmpeg'; } catch (e) {}
-const rustAudioEngine = new RustAudioEngineProbe({ rootDir: __dirname, cp, writeLog });
+const rustAudioEngine = new RustAudioEngineProbe({
+    rootDir: __dirname,
+    cp,
+    writeLog,
+    // Reenvía al renderer eventos asíncronos del motor (locución horaria,
+    // futuros eventos de fin de pista, etc.). El renderer escucha
+    // 'audio-engine-rust-event' y reacciona sin tener que mantener relojes.
+    onEngineEvent: (message) => {
+        try {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('audio-engine-rust-event', message);
+            }
+            // FASE EXTRA — Lentitud de vúmetros en consola virtual:
+            // antes el push de status pasaba por el renderer principal, que
+            // lo reempaquetaba en `vu-levels` y main.js lo retransmitía a la
+            // consola con throttle de 50ms. Resultado: ~150ms de latencia
+            // perceptual. Ahora reenviamos el push directo a la consola para
+            // que pinte sus VUs inmediatamente cuando Rust emite (~100ms).
+            if (consoleWindow && !consoleWindow.isDestroyed()) {
+                consoleWindow.webContents.send('audio-engine-rust-event', message);
+            }
+        } catch (err) {}
+    }
+});
 
 let libraryWorker = null;
 const libraryWorkerPending = new Map();
@@ -215,9 +238,14 @@ function stopAudioAnalysisWorker() {
 }
 
 function startAudioAnalysisWorker(tasks) {
-    stopAudioAnalysisWorker();
     const safeTasks = Array.isArray(tasks) ? tasks : [];
     if (safeTasks.length === 0) return;
+    if (audioAnalysisWorker) {
+        try { audioAnalysisWorker.postMessage({ action: 'append', tasks: safeTasks }); } catch (err) {
+            writeLog("Error agregando tareas audio-analysis-worker: " + err.message);
+        }
+        return;
+    }
     audioAnalysisWorker = new Worker(path.join(__dirname, 'backend', 'audio_analysis_worker.js'));
     audioAnalysisWorker.on('message', (message) => {
         if (message?.type === 'result') {
@@ -600,6 +628,8 @@ let lastVuLevels = {
     jingle: 0,
     cartwall: 0,
     playlists: [0, 0, 0, 0],
+    rustMeters: [],
+    rustMetersUpdatedAt: 0,
     stereo: {
         pgm: { left: 0, right: 0 },
         monitor: { left: 0, right: 0 },
@@ -737,6 +767,8 @@ function buildVuPayload(levels = {}) {
         jingle: resolveLevel(levels.jingle, lastVuLevels.jingle),
         cartwall: resolveLevel(levels.cartwall, lastVuLevels.cartwall),
         playlists: Array.isArray(playlists) ? playlists : [0, 0, 0, 0],
+        rustMeters: Array.isArray(levels.rustMeters) ? levels.rustMeters : (Array.isArray(lastVuLevels.rustMeters) ? lastVuLevels.rustMeters : []),
+        rustMetersUpdatedAt: resolveLevel(levels.rustMetersUpdatedAt, lastVuLevels.rustMetersUpdatedAt || 0),
         stereo: {
             pgm: resolveStereoPair(stereo.pgm, lastStereo.pgm),
             monitor: resolveStereoPair(stereo.monitor, lastStereo.monitor),
@@ -776,7 +808,7 @@ function broadcastVuLevels(levels = lastVuLevels) {
     scheduleVuBroadcast();
 }
 
-const VU_BROADCAST_MIN_INTERVAL_MS = 80;
+const VU_BROADCAST_MIN_INTERVAL_MS = 50;
 let lastVuBroadcastAt = 0;
 let pendingVuBroadcastTimer = null;
 

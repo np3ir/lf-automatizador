@@ -40,7 +40,7 @@ let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, {
     timeFolder: '', duckingFade: 1.0, duckingVolume: 20,
     outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default',
     monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default',
-    playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'webAudio',
+    playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'webAudio', rustPlaylistOwnerEnabled: false,
     chk_mus_fadein: false, chk_mus_fadeout_stop: false, chk_mus_fadeout_next: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false,
     num_mus_fadein: 0, num_mus_fadeout_stop: 0, num_mus_fadeout_next: 0, num_mus_mix: 0, num_mus_mix_db: -14
 }));
@@ -301,6 +301,10 @@ const audioDeviceSelectIds = [
     'sel-out-cartwall'
 ];
 
+function isRustAudioModeSelected() {
+    return (document.getElementById('sel-audio-engine-mode')?.value || generalPrefs.audioEngineMode) === 'rustAudio';
+}
+
 function setSelectDeviceOptions(select, audioOutputs) {
     if (!select) return;
     select.innerHTML = '<option value="default">Tarjeta Predeterminada del Sistema</option>';
@@ -311,6 +315,76 @@ function setSelectDeviceOptions(select, audioOutputs) {
         opt.text = device.label || `Audio Device ${device.deviceId.substring(0, 5)}...`;
         select.appendChild(opt);
     });
+}
+
+function setSelectRustDeviceOptions(select, rustDevices = {}) {
+    if (!select) return;
+    const defaultName = rustDevices.defaultOutput || rustDevices.defaultOutputName || rustDevices.defaultOutputId || 'Rust';
+    select.innerHTML = `<option value="default">Predeterminada Rust (${defaultName})</option>`;
+    const outputs = Array.isArray(rustDevices.outputs) ? rustDevices.outputs : [];
+    outputs.forEach((device, index) => {
+        const value = device.id || device.indexId || `output:${index}`;
+        const opt = document.createElement('option');
+        opt.value = value;
+        const label = device.name || value;
+        const prefix = device.indexId || value;
+        opt.text = device.isDefault || value === rustDevices.defaultOutputId
+            ? `${prefix}: ${label} (default)`
+            : `${prefix}: ${label}`;
+        select.appendChild(opt);
+    });
+}
+
+const ROUTE_COMMON_DEVICE_WORDS = new Set([
+    'audio', 'device', 'speakers', 'speaker', 'auriculares', 'headphones', 'altavoces',
+    'salida', 'output', 'digital', 'high', 'definition', 'usb', 'wasapi', 'default'
+]);
+
+function tokenizeRouteLabel(value = '') {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .split(/[^a-z0-9]+/)
+        .filter(token => token.length >= 3 && !ROUTE_COMMON_DEVICE_WORDS.has(token));
+}
+
+function scoreRouteLabelMatch(a = '', b = '') {
+    const aTokens = new Set(tokenizeRouteLabel(a));
+    const bTokens = new Set(tokenizeRouteLabel(b));
+    if (!aTokens.size || !bTokens.size) return 0;
+    let hits = 0;
+    aTokens.forEach(token => { if (bTokens.has(token)) hits++; });
+    return hits / Math.max(aTokens.size, bTokens.size);
+}
+
+function resolveRustOutputIdFromBrowserValue(value, rustDevices = {}, browserOutputs = []) {
+    const requested = String(value || '').trim();
+    const rustOutputs = Array.isArray(rustDevices.outputs) ? rustDevices.outputs : [];
+    if (!requested || requested === 'default') return requested || 'default';
+    const exact = rustOutputs.find(output => output.id === requested || output.indexId === requested || output.name === requested);
+    if (exact) return exact.id || exact.indexId || 'default';
+
+    const browserDevice = browserOutputs.find(device => device.deviceId === requested);
+    const browserLabel = browserDevice?.label || '';
+    let best = null;
+    rustOutputs.forEach(output => {
+        const score = scoreRouteLabelMatch(browserLabel, output.name || '');
+        if (!best || score > best.score) best = { output, score };
+    });
+    if (best && best.score >= 0.34) return best.output.id || best.output.indexId || 'default';
+    return requested;
+}
+
+function migrateVisiblePrefsToRustOutputIds(rustDevices = {}, browserOutputs = []) {
+    generalPrefs.outMain = resolveRustOutputIdFromBrowserValue(generalPrefs.outMain, rustDevices, browserOutputs);
+    generalPrefs.outMonitor = resolveRustOutputIdFromBrowserValue(generalPrefs.outMonitor, rustDevices, browserOutputs);
+    generalPrefs.outCue = resolveRustOutputIdFromBrowserValue(generalPrefs.outCue, rustDevices, browserOutputs);
+    generalPrefs.outCartwall = resolveRustOutputIdFromBrowserValue(generalPrefs.outCartwall, rustDevices, browserOutputs);
+    generalPrefs.playlistSharedDevice = resolveRustOutputIdFromBrowserValue(generalPrefs.playlistSharedDevice, rustDevices, browserOutputs);
+    generalPrefs.playlistOutputs = (generalPrefs.playlistOutputs || []).map(value => (
+        resolveRustOutputIdFromBrowserValue(value, rustDevices, browserOutputs)
+    ));
 }
 
 function ensureSelectValue(select, value) {
@@ -332,6 +406,20 @@ function updateAudioRoutingVisibility() {
     const monitorVolumeUiEnabled = document.getElementById('chk-monitor-volume-ui')?.checked === true;
     const playlistMode = document.getElementById('sel-playlist-output-mode')?.value || 'disabled';
     const cartwallMode = document.getElementById('sel-cartwall-mode')?.value || 'master';
+    const rustMode = isRustAudioModeSelected();
+    const rustOwnerRow = document.getElementById('rust-owner-row');
+    const rustOwnerHint = document.getElementById('rust-owner-hint');
+    const audioEngineHint = document.getElementById('audio-engine-hint');
+    const rustPlaylistOwner = document.getElementById('chk-rust-playlist-owner');
+
+    if (rustOwnerRow) rustOwnerRow.style.display = rustMode ? 'none' : 'flex';
+    if (rustOwnerHint) rustOwnerHint.style.display = rustMode ? 'none' : 'block';
+    if (audioEngineHint) {
+        audioEngineHint.textContent = rustMode
+            ? 'Rust es el motor principal: enumera tarjetas nativas y es dueño del audio al aire.'
+            : 'WebAudio enumera las tarjetas desde Electron. Rust queda fuera salvo pruebas de laboratorio.';
+    }
+    if (rustPlaylistOwner && rustMode) rustPlaylistOwner.checked = true;
 
     if (monitorRow) monitorRow.style.display = monitorEnabled ? 'flex' : 'none';
     if (monitorSourceRow) monitorSourceRow.style.display = monitorEnabled ? 'flex' : 'none';
@@ -342,9 +430,33 @@ function updateAudioRoutingVisibility() {
     if (cartwallDeviceRow) cartwallDeviceRow.style.display = cartwallMode === 'device' ? 'flex' : 'none';
 }
 
+function normalizeAudioRouteSignature(prefs = {}) {
+    const normalized = normalizeAudioPrefs(prefs || {});
+    return JSON.stringify({
+        audioEngineMode: normalized.audioEngineMode || 'webAudio',
+        rustPlaylistOwnerEnabled: normalized.rustPlaylistOwnerEnabled === true,
+        outMain: normalized.outMain || 'default',
+        outMonitor: normalized.outMonitor || normalized.outMain || 'default',
+        outCue: normalized.outCue || normalized.outMain || 'default',
+        outCartwall: normalized.outCartwall || normalized.outMain || 'default',
+        monitorEnabled: normalized.monitorEnabled === true,
+        monitorSourceMode: normalized.monitorSourceMode === 'preFx' ? 'preFx' : 'postFx',
+        playlistOutputMode: normalized.playlistOutputMode || 'disabled',
+        playlistSharedDevice: normalized.playlistSharedDevice || normalized.outMain || 'default',
+        playlistOutputs: Array.isArray(normalized.playlistOutputs) ? normalized.playlistOutputs.slice(0, 4) : [],
+        cartwallOutputMode: normalized.cartwallOutputMode || 'master'
+    });
+}
+
+function hasAudioRoutingPrefsChanged(previousPrefs = {}, nextPrefs = {}) {
+    return normalizeAudioRouteSignature(previousPrefs) !== normalizeAudioRouteSignature(nextPrefs);
+}
+
 function applyAudioPrefsToForm() {
     const audioEngineMode = document.getElementById('sel-audio-engine-mode');
     if (audioEngineMode) audioEngineMode.value = generalPrefs.audioEngineMode || 'webAudio';
+    const rustPlaylistOwner = document.getElementById('chk-rust-playlist-owner');
+    if (rustPlaylistOwner) rustPlaylistOwner.checked = (generalPrefs.audioEngineMode === 'rustAudio' || generalPrefs.rustPlaylistOwnerEnabled === true);
 
     ensureSelectValue(document.getElementById('sel-out-main'), generalPrefs.outMain);
     ensureSelectValue(document.getElementById('sel-out-monitor'), generalPrefs.outMonitor);
@@ -375,6 +487,23 @@ function applyAudioPrefsToForm() {
 }
 
 async function enumerateAudioDevices() {
+    if (isRustAudioModeSelected()) {
+        try {
+            const result = await ipcRenderer.invoke('audio-engine-rust-command', { cmd: 'devices', silent: true });
+            const rustDevices = result?.message || result?.status || {};
+            if (result?.success === true && Array.isArray(rustDevices.outputs) && rustDevices.outputs.length) {
+                let browserOutputs = [];
+                try {
+                    const browserDevices = await navigator.mediaDevices.enumerateDevices();
+                    browserOutputs = browserDevices.filter(d => d.kind === 'audiooutput');
+                } catch (err) {}
+                migrateVisiblePrefsToRustOutputIds(rustDevices, browserOutputs);
+                audioDeviceSelectIds.forEach(id => setSelectRustDeviceOptions(document.getElementById(id), rustDevices));
+                applyAudioPrefsToForm();
+                return;
+            }
+        } catch (err) {}
+    }
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
@@ -510,7 +639,18 @@ document.getElementById('num-duck-fade').value = generalPrefs.duckingFade || 1.0
     if (el) el.addEventListener('change', updateAudioRoutingVisibility);
 });
 
+const audioEngineModeSelect = document.getElementById('sel-audio-engine-mode');
+if (audioEngineModeSelect) {
+    audioEngineModeSelect.addEventListener('change', () => {
+        const rustPlaylistOwner = document.getElementById('chk-rust-playlist-owner');
+        if (rustPlaylistOwner && audioEngineModeSelect.value === 'rustAudio') rustPlaylistOwner.checked = true;
+        updateAudioRoutingVisibility();
+        enumerateAudioDevices();
+    });
+}
+
 function saveAll() {
+    const previousPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, generalPrefs));
     saveCurrentTypeState();
     saveConfig(fileTypesPath, fileTypesData);
     generalPrefs.outMain = document.getElementById('sel-out-main').value;
@@ -533,6 +673,8 @@ function saveAll() {
     generalPrefs.cartwallOutputMode = document.getElementById('sel-cartwall-mode').value;
     const audioEngineMode = document.getElementById('sel-audio-engine-mode');
     if (audioEngineMode) generalPrefs.audioEngineMode = audioEngineMode.value;
+    const rustPlaylistOwner = document.getElementById('chk-rust-playlist-owner');
+    if (rustPlaylistOwner) generalPrefs.rustPlaylistOwnerEnabled = generalPrefs.audioEngineMode === 'rustAudio' || rustPlaylistOwner.checked;
     
     generalPrefs.duckingVolume = parseInt(document.getElementById('num-duck-vol').value) || 20;
     generalPrefs.duckingFade = parseFloat(document.getElementById('num-duck-fade').value) || 1.0;
@@ -548,12 +690,72 @@ function saveAll() {
     generalPrefs = normalizeAudioPrefs(generalPrefs);
     delete generalPrefs.num_mus_mix_fadeout;
     saveConfig(generalPrefsPath, generalPrefs);
-    ipcRenderer.send('settings-updated');
+    ipcRenderer.send('settings-updated', {
+        audioChanged: hasAudioRoutingPrefsChanged(previousPrefs, generalPrefs),
+        audioEngineModeChanged: previousPrefs.audioEngineMode !== generalPrefs.audioEngineMode
+    });
 }
 
-document.getElementById('btn-apply').addEventListener('click', saveAll);
-document.getElementById('btn-accept').addEventListener('click', () => { saveAll(); window.close(); });
-document.getElementById('btn-cancel').addEventListener('click', () => window.close());
+// FASE 3 — Snapshot inicial de la UI para que Cancelar pueda revertir.
+// Lo capturamos justo antes de que el operador interactúe. Los selectores
+// de tarjetas de audio y los toggles relevantes se serializan a JSON.
+const __SETTINGS_SNAPSHOT_IDS = [
+    'sel-out-main', 'sel-out-monitor', 'sel-out-cue', 'sel-out-cartwall',
+    'sel-pl-out-1', 'sel-pl-out-2', 'sel-pl-out-3', 'sel-pl-out-4',
+    'sel-playlist-shared', 'sel-playlist-output-mode', 'sel-cartwall-mode',
+    'sel-monitor-source-mode', 'sel-monitor-volume-ui-mode',
+    'sel-audio-engine-mode',
+    'chk-monitor-enabled', 'chk-monitor-volume-ui', 'chk-rust-playlist-owner',
+    'num-duck-vol', 'num-duck-fade',
+    'txt-weather-city', 'sel-weather-unit', 'txt-weather-folder'
+];
+let __settingsSnapshot = null;
+
+function captureSettingsSnapshot() {
+    const snap = {};
+    __SETTINGS_SNAPSHOT_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        snap[id] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    __settingsSnapshot = snap;
+}
+
+function restoreSettingsSnapshot() {
+    if (!__settingsSnapshot) return;
+    Object.entries(__settingsSnapshot).forEach(([id, value]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.type === 'checkbox') el.checked = value;
+        else el.value = value;
+        // Disparar change para que listeners actualicen estados dependientes.
+        try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) {}
+    });
+}
+
+// Capturamos el snapshot tras una pequeña espera para que el DOM termine de
+// poblarse con las opciones de tarjetas (que vienen async desde el SO).
+setTimeout(captureSettingsSnapshot, 1500);
+
+document.getElementById('btn-apply').addEventListener('click', () => {
+    // FASE 3 — Aplicar: persiste y empuja al motor Rust en caliente PERO
+    // NO cierra la ventana. Después de aplicar, refrescamos el snapshot
+    // para que un posterior Cancelar revierta a este nuevo estado base.
+    saveAll();
+    captureSettingsSnapshot();
+});
+document.getElementById('btn-accept').addEventListener('click', () => {
+    // FASE 3 — Guardar (Aceptar y Cerrar): aplica + persiste + cierra.
+    saveAll();
+    window.close();
+});
+document.getElementById('btn-cancel').addEventListener('click', () => {
+    // FASE 3 — Cancelar: revierte la UI al snapshot y cierra SIN persistir
+    // ni mandar comandos al motor Rust. Los cambios que estaban "flotando"
+    // en los selectores se descartan.
+    restoreSettingsSnapshot();
+    window.close();
+});
 
 renderLists();
 loadExceptionFades('default');
