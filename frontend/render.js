@@ -8975,8 +8975,6 @@ window.addEventListener('keyup', (e) => { if (e.target.tagName === 'INPUT' || e.
 document.getElementById('btn-open-encoder').addEventListener('click', () => { ipcRenderer.send('open-encoder'); });
 let liveMediaRecorder = null;
 let liveCaptureStreamNode = null;
-let liveEncoderSilenceSource = null;
-let liveEncoderSilenceGain = null;
 let livePcmCaptureInput = null;
 let livePcmCaptureProcessor = null;
 let livePcmCaptureSilentGain = null;
@@ -9257,7 +9255,6 @@ async function syncRustPcmEncoderOnce() {
 
 function startRustPcmEncoderSync(config = {}) {
     stopEncoderPcmCapture();
-    stopEncoderSilenceClock();
     rustPcmEncoderSyncRunning = true;
     rustPcmEncoderEmptyPlanStrikes = 0;
     liveEncoderSourceState = {
@@ -9396,35 +9393,6 @@ function startMasterPcmEncoderCapture(config = {}) {
     });
 }
 
-function startEncoderSilenceClock(destinationNode) {
-    stopEncoderSilenceClock();
-    if (!destinationNode || !audioCtx) return;
-    try {
-        liveEncoderSilenceSource = audioCtx.createOscillator();
-        liveEncoderSilenceGain = audioCtx.createGain();
-        liveEncoderSilenceSource.frequency.value = 440;
-        liveEncoderSilenceGain.gain.value = 0.000001;
-        liveEncoderSilenceSource.connect(liveEncoderSilenceGain);
-        liveEncoderSilenceGain.connect(destinationNode);
-        liveEncoderSilenceSource.start();
-    } catch (err) {
-        logSystem(`[ERROR] No se pudo iniciar reloj silencioso del encoder: ${err.message}`);
-        stopEncoderSilenceClock();
-    }
-}
-
-function stopEncoderSilenceClock() {
-    if (liveEncoderSilenceSource) {
-        try { liveEncoderSilenceSource.stop(); } catch (err) { }
-        try { liveEncoderSilenceSource.disconnect(); } catch (err) { }
-    }
-    if (liveEncoderSilenceGain) {
-        try { liveEncoderSilenceGain.disconnect(); } catch (err) { }
-    }
-    liveEncoderSilenceSource = null;
-    liveEncoderSilenceGain = null;
-}
-
 ipcRenderer.on('start-audio-capture', async (e, config) => {
     try {
         setEncoderIncidentStatus('connecting');
@@ -9438,7 +9406,6 @@ ipcRenderer.on('start-audio-capture', async (e, config) => {
             try { masterNode.disconnect(liveCaptureStreamNode); } catch (err) { }
             liveCaptureStreamNode = null;
         }
-        stopEncoderSilenceClock();
         stopEncoderPcmCapture();
         let captureStream;
         if (config.source === 'master') {
@@ -9495,7 +9462,6 @@ ipcRenderer.on('stop-audio-capture', () => {
         try { masterNode.disconnect(liveCaptureStreamNode); } catch (err) { }
         liveCaptureStreamNode = null;
     }
-    stopEncoderSilenceClock();
     stopEncoderPcmCapture();
     liveEncoderSourceState = null;
     setEncoderIncidentStatus('disconnected');
