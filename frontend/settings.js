@@ -40,7 +40,7 @@ let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, {
     timeFolder: '', duckingFade: 1.0, duckingVolume: 20,
     outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default',
     monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default',
-    playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'webAudio', rustPlaylistOwnerEnabled: false,
+    playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'rustAudio', rustPlaylistOwnerEnabled: true,
     chk_mus_fadein: false, chk_mus_fadeout_stop: false, chk_mus_fadeout_next: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false,
     num_mus_fadein: 0, num_mus_fadeout_stop: 0, num_mus_fadeout_next: 0, num_mus_mix: 0, num_mus_mix_db: -14
 }));
@@ -302,7 +302,8 @@ const audioDeviceSelectIds = [
 ];
 
 function isRustAudioModeSelected() {
-    return (document.getElementById('sel-audio-engine-mode')?.value || generalPrefs.audioEngineMode) === 'rustAudio';
+    // Rust es ahora el unico motor disponible — el modo WebAudio fue retirado.
+    return true;
 }
 
 function setSelectDeviceOptions(select, audioOutputs) {
@@ -406,20 +407,10 @@ function updateAudioRoutingVisibility() {
     const monitorVolumeUiEnabled = document.getElementById('chk-monitor-volume-ui')?.checked === true;
     const playlistMode = document.getElementById('sel-playlist-output-mode')?.value || 'disabled';
     const cartwallMode = document.getElementById('sel-cartwall-mode')?.value || 'master';
-    const rustMode = isRustAudioModeSelected();
-    const rustOwnerRow = document.getElementById('rust-owner-row');
-    const rustOwnerHint = document.getElementById('rust-owner-hint');
     const audioEngineHint = document.getElementById('audio-engine-hint');
-    const rustPlaylistOwner = document.getElementById('chk-rust-playlist-owner');
-
-    if (rustOwnerRow) rustOwnerRow.style.display = rustMode ? 'none' : 'flex';
-    if (rustOwnerHint) rustOwnerHint.style.display = rustMode ? 'none' : 'block';
     if (audioEngineHint) {
-        audioEngineHint.textContent = rustMode
-            ? 'Rust es el motor principal: enumera tarjetas nativas y es dueño del audio al aire.'
-            : 'WebAudio enumera las tarjetas desde Electron. Rust queda fuera salvo pruebas de laboratorio.';
+        audioEngineHint.textContent = 'Rust es el motor principal: enumera tarjetas nativas y es dueño del audio al aire.';
     }
-    if (rustPlaylistOwner && rustMode) rustPlaylistOwner.checked = true;
 
     if (monitorRow) monitorRow.style.display = monitorEnabled ? 'flex' : 'none';
     if (monitorSourceRow) monitorSourceRow.style.display = monitorEnabled ? 'flex' : 'none';
@@ -433,7 +424,7 @@ function updateAudioRoutingVisibility() {
 function normalizeAudioRouteSignature(prefs = {}) {
     const normalized = normalizeAudioPrefs(prefs || {});
     return JSON.stringify({
-        audioEngineMode: normalized.audioEngineMode || 'webAudio',
+        audioEngineMode: normalized.audioEngineMode || 'rustAudio',
         rustPlaylistOwnerEnabled: normalized.rustPlaylistOwnerEnabled === true,
         outMain: normalized.outMain || 'default',
         outMonitor: normalized.outMonitor || normalized.outMain || 'default',
@@ -454,9 +445,7 @@ function hasAudioRoutingPrefsChanged(previousPrefs = {}, nextPrefs = {}) {
 
 function applyAudioPrefsToForm() {
     const audioEngineMode = document.getElementById('sel-audio-engine-mode');
-    if (audioEngineMode) audioEngineMode.value = generalPrefs.audioEngineMode || 'webAudio';
-    const rustPlaylistOwner = document.getElementById('chk-rust-playlist-owner');
-    if (rustPlaylistOwner) rustPlaylistOwner.checked = (generalPrefs.audioEngineMode === 'rustAudio' || generalPrefs.rustPlaylistOwnerEnabled === true);
+    if (audioEngineMode) audioEngineMode.value = 'rustAudio';
 
     ensureSelectValue(document.getElementById('sel-out-main'), generalPrefs.outMain);
     ensureSelectValue(document.getElementById('sel-out-monitor'), generalPrefs.outMonitor);
@@ -642,8 +631,6 @@ document.getElementById('num-duck-fade').value = generalPrefs.duckingFade || 1.0
 const audioEngineModeSelect = document.getElementById('sel-audio-engine-mode');
 if (audioEngineModeSelect) {
     audioEngineModeSelect.addEventListener('change', () => {
-        const rustPlaylistOwner = document.getElementById('chk-rust-playlist-owner');
-        if (rustPlaylistOwner && audioEngineModeSelect.value === 'rustAudio') rustPlaylistOwner.checked = true;
         updateAudioRoutingVisibility();
         enumerateAudioDevices();
     });
@@ -671,10 +658,9 @@ function saveAll() {
         document.getElementById('sel-pl-out-4').value
     ];
     generalPrefs.cartwallOutputMode = document.getElementById('sel-cartwall-mode').value;
-    const audioEngineMode = document.getElementById('sel-audio-engine-mode');
-    if (audioEngineMode) generalPrefs.audioEngineMode = audioEngineMode.value;
-    const rustPlaylistOwner = document.getElementById('chk-rust-playlist-owner');
-    if (rustPlaylistOwner) generalPrefs.rustPlaylistOwnerEnabled = generalPrefs.audioEngineMode === 'rustAudio' || rustPlaylistOwner.checked;
+    // Rust es el unico motor: forzamos siempre la preferencia, ignorando el select.
+    generalPrefs.audioEngineMode = 'rustAudio';
+    generalPrefs.rustPlaylistOwnerEnabled = true;
     
     generalPrefs.duckingVolume = parseInt(document.getElementById('num-duck-vol').value) || 20;
     generalPrefs.duckingFade = parseFloat(document.getElementById('num-duck-fade').value) || 1.0;
@@ -705,7 +691,7 @@ const __SETTINGS_SNAPSHOT_IDS = [
     'sel-playlist-shared', 'sel-playlist-output-mode', 'sel-cartwall-mode',
     'sel-monitor-source-mode', 'sel-monitor-volume-ui-mode',
     'sel-audio-engine-mode',
-    'chk-monitor-enabled', 'chk-monitor-volume-ui', 'chk-rust-playlist-owner',
+    'chk-monitor-enabled', 'chk-monitor-volume-ui',
     'num-duck-vol', 'num-duck-fade',
     'txt-weather-city', 'sel-weather-unit', 'txt-weather-folder'
 ];

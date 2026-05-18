@@ -13,8 +13,11 @@ const AUDIO_PREFS_DEFAULTS = {
     playlistSharedDevice: 'default',
     playlistOutputs: ['default', 'default', 'default', 'default'],
     cartwallOutputMode: 'master',
-    audioEngineMode: 'webAudio',
-    rustPlaylistOwnerEnabled: false,
+    // El motor Rust es la unica fuente de audio en produccion. El modo
+    // 'webAudio' fue retirado del UI y de la logica: cualquier valor legado
+    // ('webAudio', undefined, etc.) se promueve a 'rustAudio' en normalizeAudioPrefs.
+    audioEngineMode: 'rustAudio',
+    rustPlaylistOwnerEnabled: true,
     eventPreHoldActive: true,
     eventPreHoldSeconds: 20
 };
@@ -35,7 +38,9 @@ function normalizeAudioPrefs(prefs = {}) {
     const cartwallMode = ['master', 'monitor', 'cue', 'device'].includes(prefs.cartwallOutputMode)
         ? prefs.cartwallOutputMode
         : AUDIO_PREFS_DEFAULTS.cartwallOutputMode;
-    const audioEngineMode = prefs.audioEngineMode === 'rustAudio' ? 'rustAudio' : AUDIO_PREFS_DEFAULTS.audioEngineMode;
+    // Promocion forzada: cualquier valor legado se convierte en 'rustAudio'.
+    // El motor Web Audio ya no existe como modo de operacion.
+    const audioEngineMode = 'rustAudio';
     const monitorVolumeUiMode = ['inline', 'icon'].includes(prefs.monitorVolumeUiMode)
         ? prefs.monitorVolumeUiMode
         : AUDIO_PREFS_DEFAULTS.monitorVolumeUiMode;
@@ -60,7 +65,7 @@ function normalizeAudioPrefs(prefs = {}) {
         playlistOutputs: normalizePlaylistOutputs(prefs.playlistOutputs, sharedPlaylistDevice || mainDevice),
         cartwallOutputMode: cartwallMode,
         audioEngineMode,
-        rustPlaylistOwnerEnabled: audioEngineMode === 'rustAudio' || prefs.rustPlaylistOwnerEnabled === true,
+        rustPlaylistOwnerEnabled: true,
         eventPreHoldActive: prefs.eventPreHoldActive !== false,
         eventPreHoldSeconds: Math.max(1, Math.min(120, parseInt(prefs.eventPreHoldSeconds, 10) || AUDIO_PREFS_DEFAULTS.eventPreHoldSeconds))
     };

@@ -131,15 +131,10 @@
                         <div class="setting-row setting-row-compact">
                             <label style="width: 220px;">Motor activo:</label>
                             <select id="sel-audio-engine-mode" class="dark-select" style="flex: 1;">
-                                <option value="webAudio">WebAudio actual (estable)</option>
                                 <option value="rustAudio">Rust Audio (motor principal)</option>
                             </select>
                         </div>
-                        <p class="audio-hint" id="audio-engine-hint">El motor activo enumera y controla sus propias tarjetas de sonido.</p>
-                        <div class="setting-row setting-row-block" id="rust-owner-row">
-                            <label><input type="checkbox" id="chk-rust-playlist-owner"> Probar Playlist A/B como dueño Rust</label>
-                        </div>
-                        <p class="audio-hint" id="rust-owner-hint">Modo laboratorio solo para WebAudio: A/B se espeja a Rust y se silencia en el master WebAudio.</p>
+                        <p class="audio-hint" id="audio-engine-hint">El motor Rust enumera y controla las tarjetas de sonido. El modo WebAudio fue retirado del programa.</p>
                     </fieldset>
 
                     <fieldset class="fieldset-dark audio-card">
