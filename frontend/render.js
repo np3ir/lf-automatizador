@@ -10156,73 +10156,7 @@ function handleCartwallPlay(btnInfo, btnDOM) {
         }
     }
 
-    if (shouldRustOwnCartwallButton(btnInfo)) {
-        playCartwallButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabIndex, id });
-        return;
-    }
-
-    const audio = new window.Audio(url.pathToFileURL(btnInfo.file).href);
-    audio.volume = btnInfo.vol;
-    audio.loop = btnInfo.loop;
-
-    const source = audioCtx.createMediaElementSource(audio);
-    source.connect(cartwallBus);
-
-    const affectsProgram = generalPrefs.cartwallOutputMode === 'master';
-    if (affectsProgram) {
-        activePisadores++;
-        if (activePisadores === 1) applyDucking();
-    }
-
-    if (!cartwallAudioInstances[runtimeKey]) cartwallAudioInstances[runtimeKey] = [];
-    const runtimeItem = { audio: audio, source: source, affectsProgram: affectsProgram, tabIndex, id, key: runtimeKey, btnInfo, sourcePath: btnInfo.file };
-    cartwallAudioInstances[runtimeKey].push(runtimeItem);
-
-    if (btnDOM && tabIndex === cwActiveTabIndex) btnDOM.classList.add('cw-playing');
-    ipcRenderer.send('cartwall-play-state', { id, tabIndex, state: 'playing' });
-    refreshCwPlayingTabs();
-
-    audio.ontimeupdate = () => {
-        const liveTabIndex = runtimeItem.tabIndex;
-        const liveId = runtimeItem.id;
-        if (audio.duration && !isCartwallUndocked && liveTabIndex === cwActiveTabIndex) {
-            const pb = document.getElementById(`cw-progress-${liveId}`);
-            const tt = document.getElementById(`cw-timer-${liveId}`);
-            if (pb && tt) {
-                pb.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
-                tt.innerText = `${formatCwTime(audio.currentTime)} / ${formatCwTime(audio.duration)}`;
-            }
-        }
-        if (audio.duration) ipcRenderer.send('cartwall-progress', { id: liveId, tabIndex: liveTabIndex, currentTime: audio.currentTime, duration: audio.duration });
-    };
-
-    audio.onended = () => {
-        const endedKey = runtimeItem.key;
-        const endedTabIndex = runtimeItem.tabIndex;
-        const endedId = runtimeItem.id;
-        cartwallAudioInstances[endedKey] = (cartwallAudioInstances[endedKey] || []).filter(item => item.audio !== audio);
-        source.disconnect();
-        audio.src = '';
-
-        if (affectsProgram) {
-            activePisadores--;
-            if (activePisadores <= 0) { activePisadores = 0; removeDucking(); }
-        }
-
-        if ((cartwallAudioInstances[endedKey] || []).length === 0 && !isCartwallUndocked && endedTabIndex === cwActiveTabIndex) {
-            if (btnDOM) btnDOM.classList.remove('cw-playing');
-            const pb = document.getElementById(`cw-progress-${endedId}`);
-            const tt = document.getElementById(`cw-timer-${endedId}`);
-            if (pb) pb.style.width = '0%';
-            if (tt) tt.innerText = getCartwallButtonReadyText(runtimeItem.btnInfo);
-        }
-        if ((cartwallAudioInstances[endedKey] || []).length === 0) {
-            ipcRenderer.send('cartwall-play-state', { id: endedId, tabIndex: endedTabIndex, state: 'stopped', tabPlaying: isCwTabPlaying(endedTabIndex) });
-            refreshCwPlayingTabs();
-        }
-    };
-
-    audio.play().catch(e => console.log("Error Cartwall:", e));
+    playCartwallButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabIndex, id });
 }
 
 // Determina el bus y outputId de Rust para el cartwall según el modo de salida.
@@ -10250,11 +10184,13 @@ function getRustCartwallBusAndOutput() {
 }
 
 function shouldRustOwnCartwallButton(btnInfo = {}) {
-    if (generalPrefs.audioEngineMode !== 'rustAudio') return false;
+    // Rust es ahora el unico motor — el flag queda como compatibilidad para
+    // callers que aun preguntan, pero la respuesta es siempre afirmativa salvo
+    // el boton de hora (tiene su propio path) o un boton sin archivo.
     if (!shouldMirrorRustControlPlane()) return false;
     if (!btnInfo.file) return false;
     if (isCartwallTimeButton(btnInfo)) return false;
-    return true; // todos los modos tienen path Rust nativo
+    return true;
 }
 
 function buildRustCartwallPlayerId(runtimeKey = '') {
@@ -10327,53 +10263,7 @@ function handleCartwallTimePlay(btnInfo, btnDOM, runtimeKey, tabIndex, id) {
         logSystem('[CARTWALL] Locucion de hora sin archivos validos.');
         return;
     }
-    if (generalPrefs.audioEngineMode === 'rustAudio' && shouldMirrorRustControlPlane()) {
-        playCartwallTimeButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabIndex, id, filesToPlay });
-        return;
-    }
-
-    const affectsProgram = generalPrefs.cartwallOutputMode === 'master';
-    const runtimeItem = { audio: null, source: null, affectsProgram, tabIndex, id, key: runtimeKey, btnInfo, timeSequence: true, stopped: false, sourcePath: '' };
-    cartwallAudioInstances[runtimeKey] = [runtimeItem];
-    if (affectsProgram) {
-        activePisadores++;
-        if (activePisadores === 1) applyDucking();
-    }
-    if (btnDOM && tabIndex === cwActiveTabIndex) btnDOM.classList.add('cw-playing');
-    ipcRenderer.send('cartwall-play-state', { id, tabIndex, state: 'playing' });
-    refreshCwPlayingTabs();
-
-    let currentIndex = 0;
-    const playNextSegment = () => {
-        if (runtimeItem.stopped || currentIndex >= filesToPlay.length) {
-            finishCartwallTimeRuntime(runtimeItem);
-            return;
-        }
-        const audio = new window.Audio(url.pathToFileURL(filesToPlay[currentIndex]).href);
-        audio.volume = btnInfo.vol;
-        const source = audioCtx.createMediaElementSource(audio);
-        source.connect(cartwallBus);
-        runtimeItem.audio = audio;
-        runtimeItem.source = source;
-        runtimeItem.sourcePath = filesToPlay[currentIndex];
-        audio.ontimeupdate = () => {
-            if (audio.duration && !isCartwallUndocked && runtimeItem.tabIndex === cwActiveTabIndex) {
-                const pb = document.getElementById(`cw-progress-${runtimeItem.id}`);
-                const tt = document.getElementById(`cw-timer-${runtimeItem.id}`);
-                if (pb) pb.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
-                if (tt) tt.innerText = `${formatCwTime(audio.currentTime)} / ${formatCwTime(audio.duration)}`;
-            }
-            if (audio.duration) ipcRenderer.send('cartwall-progress', { id: runtimeItem.id, tabIndex: runtimeItem.tabIndex, currentTime: audio.currentTime, duration: audio.duration });
-        };
-        audio.onended = () => {
-            try { source.disconnect(); } catch (err) { }
-            audio.src = '';
-            currentIndex++;
-            playNextSegment();
-        };
-        audio.play().catch(() => finishCartwallTimeRuntime(runtimeItem));
-    };
-    playNextSegment();
+    playCartwallTimeButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabIndex, id, filesToPlay });
 }
 
 async function playCartwallTimeButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabIndex, id, filesToPlay }) {
@@ -10409,33 +10299,6 @@ async function playCartwallTimeButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabI
     if (result?.ok) return;
     finishCartwallRuntimeItem(runtimeItem);
     logSystem(`[CARTWALL] Rust no pudo reproducir locucion de hora: ${result?.error || 'sin detalle'}`);
-}
-
-function finishCartwallTimeRuntime(runtimeItem) {
-    const endedKey = runtimeItem.key;
-    const endedTabIndex = runtimeItem.tabIndex;
-    const endedId = runtimeItem.id;
-    if (runtimeItem.source) {
-        try { runtimeItem.source.disconnect(); } catch (err) { }
-    }
-    if (runtimeItem.audio) {
-        try { runtimeItem.audio.pause(); runtimeItem.audio.src = ''; } catch (err) { }
-    }
-    delete cartwallAudioInstances[endedKey];
-    if (runtimeItem.affectsProgram) {
-        activePisadores--;
-        if (activePisadores <= 0) { activePisadores = 0; removeDucking(); }
-    }
-    if (!isCartwallUndocked && endedTabIndex === cwActiveTabIndex) {
-        const btnDOM = document.getElementById(`cw-btn-${endedId}`);
-        if (btnDOM) btnDOM.classList.remove('cw-playing');
-        const pb = document.getElementById(`cw-progress-${endedId}`);
-        const tt = document.getElementById(`cw-timer-${endedId}`);
-        if (pb) pb.style.width = '0%';
-        if (tt) tt.innerText = getCartwallButtonReadyText(runtimeItem.btnInfo);
-    }
-    ipcRenderer.send('cartwall-play-state', { id: endedId, tabIndex: endedTabIndex, state: 'stopped', tabPlaying: isCwTabPlaying(endedTabIndex) });
-    refreshCwPlayingTabs();
 }
 
 function finishCartwallRuntimeItem(runtimeItem) {
