@@ -254,8 +254,14 @@ function resolveTrackPlaybackWindow(filePath, options = {}) {
     let mixAbsolute = options.mixAbsolute !== undefined
         ? parseFiniteCueValue(options.mixAbsolute)
         : parseFiniteCueValue(cueData.mix);
-    if (mixAbsolute !== null && mixAbsolute <= (startOffset + MIN_MIX_AFTER_START_SECONDS)) mixAbsolute = null;
-    if (naturalEndAbsolute !== null && mixAbsolute !== null && mixAbsolute >= naturalEndAbsolute) mixAbsolute = null;
+    // Si el mix vino del operador (editor 2 o 3 pistas), se respeta tal cual:
+    // las guardas que siguen son una proteccion contra valores absurdos del
+    // analisis automatico, no contra decisiones manuales del operador.
+    const mixIsManual = options.mixIsManual === true;
+    if (!mixIsManual) {
+        if (mixAbsolute !== null && mixAbsolute <= (startOffset + MIN_MIX_AFTER_START_SECONDS)) mixAbsolute = null;
+        if (naturalEndAbsolute !== null && mixAbsolute !== null && mixAbsolute >= naturalEndAbsolute) mixAbsolute = null;
+    }
 
     let finAbsolute = options.finAbsolute !== undefined
         ? parseFiniteCueValue(options.finAbsolute)
@@ -1071,8 +1077,14 @@ const rustPlaylistVirtualClock = {
     path: '',
     baseTime: 0,
     startedAt: 0,
-    paused: true
+    paused: true,
+    // Marca de tiempo del ultimo seek manual del operador. Mientras la
+    // diferencia con Date.now() sea menor a RUST_SEEK_BLACKOUT_MS, el reloj
+    // virtual ignora la posicion que reporta Rust (porque viene atrasada
+    // respecto del seek recien enviado) y usa baseTime local.
+    seekedAt: 0
 };
+const RUST_SEEK_BLACKOUT_MS = 600;
 const rustPlaylistGainRampTimers = new Map();
 const rustMonitorMirrorState = new Map();
 let currentPlaybackStartCause = 'idle';
@@ -1139,6 +1151,16 @@ function isRustVirtualPlayer(player) {
 
 function getRustVirtualCurrentTime() {
     if (!rustPlaylistVirtualClock.active) return 0;
+    // Tras un seek manual del operador, Rust tarda decenas de milisegundos en
+    // confirmar la nueva posicion. Durante ese blackout devolvemos el reloj
+    // local actualizado por seekRustVirtualPlayback para que la UI no vuelva
+    // un instante a la posicion vieja (causa visible: la hora de finalizacion
+    // y las horas de la playlist quedaban sin recalcularse al adelantar).
+    const sinceSeek = Date.now() - rustPlaylistVirtualClock.seekedAt;
+    if (rustPlaylistVirtualClock.seekedAt > 0 && sinceSeek < RUST_SEEK_BLACKOUT_MS) {
+        if (rustPlaylistVirtualClock.paused) return rustPlaylistVirtualClock.baseTime;
+        return rustPlaylistVirtualClock.baseTime + Math.max(0, (Date.now() - rustPlaylistVirtualClock.startedAt) / 1000);
+    }
     const playerId = getPlaylistPlayerId(rustPlaylistVirtualClock.player);
     const rustPlayer = playerId ? findRustStatusPlayer(rustAudioProbeStatus.lastStatus, playerId) : null;
     const rustPositionSeconds = Number(rustPlayer?.positionMs) / 1000;
@@ -1204,6 +1226,7 @@ function seekRustVirtualPlayback(positionSeconds = 0) {
     if (!rustPlaylistVirtualClock.active) return;
     rustPlaylistVirtualClock.baseTime = Math.max(0, Number(positionSeconds) || 0);
     rustPlaylistVirtualClock.startedAt = Date.now();
+    rustPlaylistVirtualClock.seekedAt = Date.now();
 }
 
 function stopRustVirtualPlayback(player = null) {
@@ -5278,7 +5301,14 @@ function _calcTbodyHours(tbodyIndex, updateUI = false) {
         startIndex = rows.indexOf(currentPlayingRow);
         if (startIndex === -1) startIndex = 0;
         if (trackStartTime) {
-            let elapsed = getPlayerClockTime(activePlayer) || 0;
+            // getPlayerClockTime devuelve el tiempo ABSOLUTO dentro del archivo
+            // (incluyendo currentStartTimeOffset). Para obtener el "elapsed"
+            // dentro de la ventana efectiva de la pista hay que restarlo, igual
+            // que hace recalcEndTime(). Sin esta resta, al hacer seek dentro de
+            // una pista con startOffset > 0 las horas siguientes quedaban
+            // descalibradas en X segundos.
+            let elapsed = (getPlayerClockTime(activePlayer) || 0) - currentStartTimeOffset;
+            if (elapsed < 0) elapsed = 0;
             let remaining = currentDuration - elapsed;
             if (remaining < 0) remaining = 0;
             timeObj = new Date(Date.now() + (remaining * 1000));
@@ -8301,6 +8331,10 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
         const baseDur = parseFiniteCueValue(cacheDbg.duration) ?? parseFiniteCueValue(tr.dataset.duracion) ?? 0;
         currentTrackConfig = getCrossfadeConfig(getTrackTypeData(rutaFisica), rutaFisica);
         const rowMixAbsolute = getResolvedRowMixAbsolute(tr, currentTrackConfig);
+        // Si el operador definio el mix a mano en el editor de 2 o 3 pistas, la
+        // fila trae dataset.customMix y ese valor debe respetarse aunque caiga
+        // antes de los 3 segundos (caso jingles cortos, identificaciones, etc).
+        const rowMixIsManual = parseFiniteCueValue(tr?.dataset?.customMix) !== null;
         if (rowMixAbsolute === null && currentTrackConfig.mixDbActive) {
             requestImmediateTransitionPreanalysis(rutaFisica, currentTrackConfig);
         } else {
@@ -8310,7 +8344,8 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
             baseDuration: baseDur,
             startOffset: currentStartTimeOffset,
             mixAbsolute: rowMixAbsolute,
-            finAbsolute: manualFin
+            finAbsolute: manualFin,
+            mixIsManual: rowMixIsManual
         });
         const resumeLimit = playbackWindow.effectiveEndAbsolute ?? playbackWindow.naturalEndAbsolute;
         if (resumeStart !== null && (resumeLimit === null || resumeStart < (resumeLimit - MIX_FIN_GUARD_SECONDS))) {
@@ -8319,7 +8354,8 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
                 baseDuration: baseDur,
                 startOffset: currentStartTimeOffset,
                 mixAbsolute: rowMixAbsolute,
-                finAbsolute: manualFin
+                finAbsolute: manualFin,
+                mixIsManual: rowMixIsManual
             });
         }
         currentStartTimeOffset = playbackWindow.startOffset;
@@ -8521,7 +8557,8 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
                     baseDuration: metadataDuration,
                     startOffset: currentStartTimeOffset,
                     mixAbsolute: rowMixAbsolute,
-                    finAbsolute: manualFin
+                    finAbsolute: manualFin,
+                    mixIsManual: rowMixIsManual
                 });
                 currentStartTimeOffset = playbackWindow.startOffset;
                 currentDuration = playbackWindow.effectiveDuration ?? Math.max(MIN_PLAYBACK_WINDOW_SECONDS, metadataDuration - currentStartTimeOffset);
