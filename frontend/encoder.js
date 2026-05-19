@@ -252,8 +252,15 @@ function updateInputMeter(report = {}) {
     lastInputMeterAt = Date.now();
     const peakDb = Number(report.peakDb);
     const rmsDb = Number(report.rmsDb);
-    const safePeakDb = Number.isFinite(peakDb) ? Math.max(-60, Math.min(0, peakDb)) : -60;
-    const percent = Math.max(0, Math.min(100, ((safePeakDb + 60) / 60) * 100));
+
+    // Usar la misma fórmula matemática y escala de decibelios que la consola principal (-36 dB a +3 dB)
+    let percent = 0;
+    if (Number.isFinite(peakDb)) {
+        if (peakDb > -36) {
+            percent = peakDb > 3 ? 100 : ((peakDb + 36) / 39) * 100;
+        }
+    }
+
     const silentMs = Number(report.silentMs) || 0;
     const source = report.captureProvider || report.source || 'fuente';
     const silent = report.hasSignal === false && silentMs > 4000;
