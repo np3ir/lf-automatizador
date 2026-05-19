@@ -55,6 +55,7 @@ function saveEncoderPrefs() {
 
 const statusEl = document.getElementById('enc-status');
 const timerEl = document.getElementById('enc-timer');
+const bitrateRealEl = document.getElementById('enc-bitrate-real');
 const logBox = document.getElementById('enc-log');
 const btnConnect = document.getElementById('btn-connect');
 const throughputCanvas = document.getElementById('enc-throughput-canvas');
@@ -115,6 +116,7 @@ function resetThroughputStats() {
     lastThroughputAt = 0;
     if (throughputValuesEl) throughputValuesEl.textContent = 'Actual: -- kbps | Pico: -- kbps | Vel: --';
     if (throughputScaleEl) throughputScaleEl.textContent = `${formatKbps(throughputScaleKbps)} kbps`;
+    if (bitrateRealEl) bitrateRealEl.textContent = '-- kbps';
     if (encoderHealthLineEl) {
         encoderHealthLineEl.textContent = 'Esperando datos del encoder.';
         encoderHealthLineEl.classList.remove('warn');
@@ -222,6 +224,9 @@ function updateThroughputStats(report = {}) {
         throughputValuesEl.textContent = `Actual: ${formatKbps(bitrateKbps)} kbps | Pico: ${formatKbps(throughputPeakKbps)} kbps | Vel: ${speedText}`;
     }
     if (throughputScaleEl) throughputScaleEl.textContent = `${formatKbps(throughputScaleKbps)} kbps`;
+    if (bitrateRealEl) {
+        bitrateRealEl.textContent = `${bitrateKbps.toFixed(1)} kbps`;
+    }
     if (encoderHealthLineEl) {
         encoderHealthLineEl.textContent = `Stream estable. Ultimo dato FFmpeg: ${report.ffmpegTime || '--'}`;
         encoderHealthLineEl.classList.remove('warn');
