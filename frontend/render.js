@@ -307,7 +307,7 @@ function clearPlayerPlaybackMeta(player) {
 
 let uiPrefs = loadConfig(uiPrefsPath, { controlsPos: 'bottom', temp: true, hum: true, leftPanel: true, ext: false, sysLog: true, showRemainingTime: false, cartwall: false, playlistColumnWidths: [92, 520, 96, 82, 82] });
 let fxPrefs = loadConfig(fxPrefsPath, { preamp: 0, pan: 0, mono: false, eq_bands: [0, 0, 0, 0, 0, 0, 0, 0], eq_on: false, comp_on: false, lim_on: false, order: ['eq', 'comp', 'limiter'], custom_presets: {}, active_preset: 'def_Plano (Reset)' });
-let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, { modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, timeFolder: '', duckingFade: 1.0, duckingVolume: 20, outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default', monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', encoderSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default', playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'webAudio', rustPlaylistOwnerEnabled: false, chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false, num_mus_fadein: 0, num_mus_fadeout: 0, num_mus_mix: 0, num_mus_mix_db: -14, eventsMasterActive: true, eventsManualOnly: false }));
+let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, { modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, timeFolder: '', duckingFade: 1.0, duckingVolume: 20, outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default', monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', encoderSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default', playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'rustAudio', rustPlaylistOwnerEnabled: true, chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false, num_mus_fadein: 0, num_mus_fadeout: 0, num_mus_mix: 0, num_mus_mix_db: -14, eventsMasterActive: true, eventsManualOnly: false }));
 let clockwheelPrefs = loadConfig(clockwheelPrefsPath, { pattern: '', targetMinutes: 60, sepArtist: 4, sepTitle: 8, sepFolder: 2, clearList: false });
 
 // Adaptar rutas de configuración al SO actual (Linux: traduce rutas Windows automáticamente)
@@ -387,6 +387,7 @@ let incidentEntries = [];
 let incidentFilter = 'all';
 let incidentAutoActionCount = 0;
 let incidentLastAutoAction = 'Ultima autoaccion: ninguna';
+const incidentRepeatState = new Map();
 let lastEncoderStatus = 'disconnected';
 const incidentStatusState = {
     air: { value: 'Detenido', tone: 'warn' },
@@ -631,6 +632,15 @@ function setQueuedNextManual(row) {
     saveSessionSnapshot();
 }
 
+function setQueuedNextAutomatic(row) {
+    document.querySelectorAll('.playlist-table tr[data-manual-next="true"]').forEach(tr => {
+        delete tr.dataset.manualNext;
+    });
+    queuedNextRow = row || null;
+    updateNextTrackVisuals();
+    saveSessionSnapshot();
+}
+
 function formatSpecialPlaylistTitle(type, targetTab = null, noteText = '') {
     if (type === 'stop') return `${ICON_STOP_LABEL} Comando: STOP`;
     if (type === 'note') return `${ICON_NOTE_LABEL} ${noteText || 'Nota'}`;
@@ -653,6 +663,16 @@ function clearPlaylistDragState() {
     document.querySelectorAll('.playlist-table tr').forEach(row => {
         row.classList.remove('dragging-row', 'drag-over-top', 'drag-over-bottom');
     });
+}
+
+function isRowAfterAnchor(row, anchorRow) {
+    if (!row || !anchorRow || row.closest('tbody') !== anchorRow.closest('tbody')) return false;
+    let scan = anchorRow.nextElementSibling;
+    while (scan) {
+        if (scan === row) return true;
+        scan = scan.nextElementSibling;
+    }
+    return false;
 }
 
 function buildSessionState() {
@@ -970,6 +990,27 @@ function renderIncidentEntries() {
 
 function recordIncident(msg, meta = {}) {
     const now = new Date();
+    const throttleKey = meta.throttleKey || ((meta.autoAction === true || msg.includes('[GUARDIA AIRE]')) ? msg.replace(/\d+(?:[.,]\d+)?/g, '#') : '');
+    if (throttleKey) {
+        const nowMs = now.getTime();
+        const windowMs = Math.max(60000, Number(meta.throttleWindowMs) || 10 * 60 * 1000);
+        const maxRepeats = Math.max(1, Number(meta.throttleMax) || 3);
+        let state = incidentRepeatState.get(throttleKey);
+        if (!state || nowMs - state.startedAt > windowMs) {
+            state = { startedAt: nowMs, count: 0, suppressed: false };
+        }
+        state.count++;
+        incidentRepeatState.set(throttleKey, state);
+        if (state.count > maxRepeats) {
+            if (!state.suppressed) {
+                state.suppressed = true;
+                incidentRepeatState.set(throttleKey, state);
+                msg = `${msg} Avisos repetidos silenciados hasta que cambie la condicion.`;
+            } else {
+                return;
+            }
+        }
+    }
     const entry = {
         id: `${now.getTime()}_${Math.random().toString(16).slice(2, 8)}`,
         time: now.toLocaleString('es-PE', { hour12: false }),
@@ -1078,7 +1119,11 @@ const rustPlaylistOwnerHealth = {
     lastOkAt: 0,
     fallbackUntil: 0,
     fallbackReason: '',
-    lastStallRecoveryAt: 0
+    lastStallRecoveryAt: 0,
+    lastPlayerId: '',
+    lastPositionMs: null,
+    lastPositionAt: 0,
+    audioNotReadySince: 0
 };
 let rustPlaylistStopGuardUntil = 0;
 const rustPlaylistVirtualClock = {
@@ -1175,7 +1220,7 @@ function getRustVirtualCurrentTime() {
     const rustPlayer = playerId ? findRustStatusPlayer(rustAudioProbeStatus.lastStatus, playerId) : null;
     const rustPositionSeconds = Number(rustPlayer?.positionMs) / 1000;
     if (Number.isFinite(rustPositionSeconds) && rustPositionSeconds >= 0) {
-        if (rustPlayer.status === 'playing') {
+        if (rustPlayer.status === 'playing' && rustPlayer.audioReady !== false) {
             const updatedAt = Number(rustAudioProbeStatus.lastStatus?.updatedAt) || 0;
             const driftSeconds = updatedAt > 0 ? Math.max(0, (Date.now() - updatedAt) / 1000) : 0;
             return rustPositionSeconds + Math.min(0.5, driftSeconds);
@@ -1343,6 +1388,13 @@ function isRustPlaylistPlayConfirmed(result, playerId = '') {
     return rustPlayer?.status === 'playing' && rustPlayer.audioReady !== false;
 }
 
+function resetRustPlaylistOwnerWatch(playerId = '') {
+    rustPlaylistOwnerHealth.lastPlayerId = playerId;
+    rustPlaylistOwnerHealth.lastPositionMs = null;
+    rustPlaylistOwnerHealth.lastPositionAt = Date.now();
+    rustPlaylistOwnerHealth.audioNotReadySince = 0;
+}
+
 function watchRustPlaylistOwnerHealth(status = null) {
     // Durante locuciones horarias de playlist el player HTML está activo pero Rust gestiona
     // el audio via 'time-locucion'; no aplicar stall-recovery a player-a/b en ese período.
@@ -1350,16 +1402,36 @@ function watchRustPlaylistOwnerHealth(status = null) {
     const playerId = getPlaylistPlayerId(activePlayer);
     if (!playerId) return;
     const rustPlayer = findRustStatusPlayer(status, playerId);
-    if (!rustPlayer || rustPlayer.status === 'playing') return;
+    if (!rustPlayer) return;
     const now = Date.now();
+    const positionMs = Math.max(0, Number(rustPlayer.positionMs) || 0);
+    if (rustPlaylistOwnerHealth.lastPlayerId !== playerId) resetRustPlaylistOwnerWatch(playerId);
+    if (rustPlaylistOwnerHealth.lastPositionMs === null || Math.abs(positionMs - rustPlaylistOwnerHealth.lastPositionMs) > 40) {
+        rustPlaylistOwnerHealth.lastPositionMs = positionMs;
+        rustPlaylistOwnerHealth.lastPositionAt = now;
+    }
+    if (rustPlayer.audioReady === false) {
+        if (!rustPlaylistOwnerHealth.audioNotReadySince) rustPlaylistOwnerHealth.audioNotReadySince = now;
+    } else {
+        rustPlaylistOwnerHealth.audioNotReadySince = 0;
+    }
+    const audioNotReadyMs = rustPlaylistOwnerHealth.audioNotReadySince ? now - rustPlaylistOwnerHealth.audioNotReadySince : 0;
+    const stalledMs = now - (rustPlaylistOwnerHealth.lastPositionAt || now);
+    const needsRecovery = rustPlayer.status !== 'playing'
+        || audioNotReadyMs >= 2500
+        || (rustPlayer.status === 'playing' && stalledMs >= 4500);
+    if (!needsRecovery) return;
     if (now - rustPlaylistOwnerHealth.lastStallRecoveryAt < 1800) return;
     rustPlaylistOwnerHealth.lastStallRecoveryAt = now;
-    const positionMs = Math.max(0, Math.round(getPlayerClockTime(activePlayer) * 1000));
-    commandRustPlaylist('seek', { player: playerId, positionMs })
+    const resumePositionMs = Math.max(positionMs, Math.round(getPlayerClockTime(activePlayer) * 1000));
+    recordIncident(`[AIRE] Rust detecto player ${playerId} sin avance/audio listo. Reintentando reproduccion.`, { category: 'air', level: 'warn', autoAction: true, throttleKey: `rust-owner-stall:${playerId}` });
+    commandRustPlaylist('seek', { player: playerId, positionMs: resumePositionMs })
         .then(() => commandRustPlaylist('play', { player: playerId }))
         .then(result => {
             if (!isRustPlaylistPlayConfirmed(result, playerId)) {
-                setRustPlaylistOwnerFallback(`rust-player-${rustPlayer.status || 'no-playing'}`);
+                setRustPlaylistOwnerFallback(rustPlayer.audioReady === false ? 'rust-player-audio-not-ready' : `rust-player-${rustPlayer.status || 'no-playing'}`);
+            } else {
+                resetRustPlaylistOwnerWatch(playerId);
             }
         })
         .catch(() => setRustPlaylistOwnerFallback('rust-player-recovery-failed'));
@@ -2284,7 +2356,12 @@ function isDateValidForEvent(d, ev) {
     if (ev.validityEnd) { const end = new Date(ev.validityEnd + 'T00:00:00'); if (testDate > end) return false; }
     if (ev.dayMode === 'monthlyWeeks') {
         if (!ev.targetWeeks || ev.targetWeeks.length === 0) return false;
-        const dom = d.getDate(); let w = Math.ceil(dom / 7); if (w > 5) w = 5; if (!ev.targetWeeks.includes(w)) return false;
+        const dom = d.getDate();
+        const weekIds = [Math.min(5, Math.ceil(dom / 7))];
+        const plusSeven = new Date(d.getTime());
+        plusSeven.setDate(dom + 7);
+        if (plusSeven.getMonth() !== d.getMonth()) weekIds.push(5);
+        if (!ev.targetWeeks.some(week => weekIds.includes(week))) return false;
     }
     return true;
 }
@@ -2328,8 +2405,30 @@ async function inspectEventSource(filePath, sourceType) {
             if (!block) return { ok: false, message: 'Bloque comercial no encontrado', summary: 'sin bloque' };
             const items = Array.isArray(block.items) ? block.items : [];
             if (items.length === 0) return { ok: false, message: 'Bloque comercial sin piezas', summary: '0 piezas' };
-            const missingCount = items.filter(item => item?.sourceType !== 'time' && (!item.filePath || !fs.existsSync(item.filePath))).length;
+            let missingCount = 0;
+            let randomFoldersEmpty = 0;
+            items.forEach(item => {
+                if (item?.sourceType === 'time') return;
+                if (!item?.filePath || !fs.existsSync(item.filePath)) {
+                    missingCount++;
+                    return;
+                }
+                if (item.sourceType === 'random') {
+                    try {
+                        const stats = fs.statSync(item.filePath);
+                        if (!stats.isDirectory()) {
+                            missingCount++;
+                            return;
+                        }
+                        const files = fs.readdirSync(item.filePath).filter(isSupportedAudioName);
+                        if (files.length === 0) randomFoldersEmpty++;
+                    } catch (err) {
+                        missingCount++;
+                    }
+                }
+            });
             if (missingCount > 0) return { ok: false, message: `Bloque comercial con ${missingCount} ruta(s) faltante(s)`, summary: `${items.length} pieza(s)` };
+            if (randomFoldersEmpty > 0) return { ok: false, message: `Bloque comercial con ${randomFoldersEmpty} carpeta(s) aleatoria(s) vacia(s)`, summary: `${items.length} pieza(s)` };
             return { ok: true, message: 'Bloque comercial listo', summary: `${items.length} pieza(s)` };
         }
         if (!filePath || !fs.existsSync(filePath)) return { ok: false, message: 'Fuente no encontrada', summary: 'sin ruta' };
@@ -2522,7 +2621,7 @@ ipcRenderer.on('refresh-events', async (e, savedEvent) => {
     eventsMasterDB = await ipcRenderer.invoke('db-get-events');
     eventRuntimeQueue.clear();
     eventPreflightPromises.clear();
-    eventsMasterDB.forEach(ev => { ev.lastFired = null; ev.checkedForThisCycle = false; });
+    eventsMasterDB.forEach(ev => { ev.checkedForThisCycle = false; });
     renderEventsList(); updateEventCountdowns();
 });
 
@@ -3180,6 +3279,12 @@ function getEventOccurrenceKey(ev, occurrence) {
     return `${ev.id}_${occurrence.timeStr}_${occurrence.date.toDateString()}`;
 }
 
+function getEventFireId(ev, timeStr, date) {
+    if (!ev || !timeStr || !date) return null;
+    if (ev.dayMode === 'once') return `${ev.id}_${timeStr}`;
+    return `${ev.id}_${timeStr}_${date.toDateString()}`;
+}
+
 function getEventQueueEntryForOccurrence(ev, occurrence) {
     const key = getEventOccurrenceKey(ev, occurrence);
     if (!key) return null;
@@ -3562,21 +3667,33 @@ function getPriorityInsertTarget(targetTbody, baseTarget, eventObj) {
     return target;
 }
 
+function getPlaybackAnchorRow() {
+    if (currentPlayingRow && document.body.contains(currentPlayingRow)) return currentPlayingRow;
+    return document.querySelector('#playlist-table tr.row-active');
+}
+
+function moveRowsAfterAnchor(rows, anchorRow) {
+    if (!anchorRow || !anchorRow.parentNode || !Array.isArray(rows) || rows.length === 0) return false;
+    let ref = anchorRow;
+    rows.forEach(row => {
+        if (!row || !row.parentNode || row === ref) return;
+        ref.parentNode.insertBefore(row, ref.nextSibling);
+        ref = row;
+    });
+    return true;
+}
+
 function syncQueuedNextAfterEventInsert(targetTbody, firstInsertedRow) {
     if (!firstInsertedRow) return;
 
-    // PROTECCION: Si el usuario ya marco manualmente un "Siguiente", no lo sobreescribimos
-    // con la insercion automatica, a menos que no haya nada marcado.
-    if (queuedNextRow && queuedNextRow.dataset.manualNext === "true" && document.body.contains(queuedNextRow)) {
-        return;
-    }
-
-    if (currentPlayingRow && targetTbody && targetTbody.contains(currentPlayingRow)) {
-        queuedNextRow = currentPlayingRow.nextElementSibling || firstInsertedRow;
+    const anchorRow = getPlaybackAnchorRow();
+    if (anchorRow && targetTbody && targetTbody.contains(anchorRow)) {
+        setQueuedNextAutomatic(firstInsertedRow);
     } else if (!currentPlayingRow || (isPlayerClockPaused(activePlayer) && getPlayerClockTime(activePlayer) === 0)) {
-        queuedNextRow = firstInsertedRow;
+        setQueuedNextAutomatic(firstInsertedRow);
+    } else {
+        updateNextTrackVisuals();
     }
-    updateNextTrackVisuals();
 }
 
 function getRowsInPlaylistBody(tbody) {
@@ -3602,6 +3719,11 @@ function resolvePriorityNextRow(candidate) {
     const naturalNext = currentPlayingRow.nextElementSibling;
     if (!naturalNext || !document.body.contains(naturalNext)) return candidate;
     if (naturalNext === candidate) return candidate;
+
+    if (candidate && candidate.closest('tbody') === currentPlayingRow.closest('tbody') && !isRowAfterAnchor(candidate, currentPlayingRow)) {
+        if (candidate.dataset.manualNext === "true") return candidate;
+        return resolveNextOperationalRow(naturalNext, false);
+    }
 
     // Proteccion de seleccion manual del usuario
     if (candidate && candidate.dataset.manualNext === "true") {
@@ -3738,6 +3860,7 @@ async function executeEvent(eventObj, runtimeOptions = {}) {
     else if (action === 'append-end') { currentTarget = targetTbody.lastElementChild; }
     if (currentTarget && action !== 'append-end') currentTarget = getPriorityInsertTarget(targetTbody, currentTarget, eventObj);
     const batchId = Date.now().toString();
+    const insertedRows = [];
 
     for (let i = 0; i < pistas.length; i++) {
         let pName = pistas[i].nombre;
@@ -3764,7 +3887,16 @@ async function executeEvent(eventObj, runtimeOptions = {}) {
             tr.dataset.originalTbodyIndex = tbodys.indexOf(targetTbody);
         }
         if (action === 'clear' || deferClearUntilExecution) tr.dataset.forceFollowView = 'true';
+        insertedRows.push(tr);
         if (i === 0) firstInsertedRow = tr; currentTarget = tr;
+    }
+    const shouldQueueAfterCurrent = firstInsertedRow
+        && action !== 'append-end'
+        && !fromPlaylistCommand
+        && !(execution === 'interrupt' && interruptAllowed);
+    const playbackAnchorRow = shouldQueueAfterCurrent ? getPlaybackAnchorRow() : null;
+    if (playbackAnchorRow && playbackAnchorRow.parentNode === targetTbody) {
+        moveRowsAfterAnchor(insertedRows, playbackAnchorRow);
     }
     calcularHorasPlaylist(); updateNextTrackVisuals();
     markEventQueueAfterInsert(eventObj, runtimeOptions, firstInsertedRow, maxDelayActive, execution, action, interruptAllowed || (fromPlaylistCommand && action !== 'append-end'));
@@ -3827,7 +3959,7 @@ setInterval(() => {
         if (ev.requirePlaying && (!eventPreHoldActive && (!currentPlayingRow || isPlayerClockPaused(activePlayer)))) {
             let expandedTimes = getExpandedEventTimes(ev);
             if (expandedTimes.includes(currentStr)) {
-                const fireId = `${ev.id}_${currentStr}`; const todayStr = now.toDateString(); const ignoreId = `${ev.id}_${currentStr}_${todayStr}`;
+                const todayStr = now.toDateString(); const fireId = getEventFireId(ev, currentStr, now); const ignoreId = `${ev.id}_${currentStr}_${todayStr}`;
                 if (ev.lastFired !== fireId && !ignoredEventTriggers.includes(ignoreId)) {
                     const entry = getEventQueueEntryForOccurrence(ev, { date: new Date(now.getTime()), timeStr: currentStr });
                     if (entry) setEventQueueStatus(entry, 'skipped', 'OMITIDO', 'Requiere audio al aire');
@@ -3843,7 +3975,7 @@ setInterval(() => {
         let expandedTimes = getExpandedEventTimes(ev);
         expandedTimes.forEach(tTime => {
             if (currentStr === tTime) {
-                const fireId = `${ev.id}_${tTime}`; const todayStr = now.toDateString(); const ignoreId = `${ev.id}_${tTime}_${todayStr}`;
+                const todayStr = now.toDateString(); const fireId = getEventFireId(ev, tTime, now); const ignoreId = `${ev.id}_${tTime}_${todayStr}`;
                 if (ev.lastFired !== fireId && !ignoredEventTriggers.includes(ignoreId)) {
                     ev.lastFired = fireId;
                     saveEventsDB();
@@ -6758,7 +6890,7 @@ async function setTapSink(tap, deviceId, label) {
 function getAudioRouteSignature(prefs = {}) {
     const normalized = normalizeAudioPrefs(prefs || {});
     return JSON.stringify({
-        audioEngineMode: normalized.audioEngineMode || 'webAudio',
+        audioEngineMode: normalized.audioEngineMode || 'rustAudio',
         rustPlaylistOwnerEnabled: normalized.rustPlaylistOwnerEnabled === true,
         outMain: normalized.outMain || 'default',
         outMonitor: normalized.outMonitor || normalized.outMain || 'default',
@@ -6951,10 +7083,10 @@ document.addEventListener('click', (e) => {
 
 ipcRenderer.on('settings-updated', () => {
     const previousRouteSignature = getAudioRouteSignature(generalPrefs);
-    const previousEngineMode = generalPrefs.audioEngineMode || 'webAudio';
+    const previousEngineMode = generalPrefs.audioEngineMode || 'rustAudio';
     generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, generalPrefs));
     const routeChanged = previousRouteSignature !== getAudioRouteSignature(generalPrefs);
-    const engineChanged = previousEngineMode !== (generalPrefs.audioEngineMode || 'webAudio');
+    const engineChanged = previousEngineMode !== (generalPrefs.audioEngineMode || 'rustAudio');
     audioEngineClient.setRequestedMode(generalPrefs.audioEngineMode);
     if (routeChanged || engineChanged) {
         applyRustPlaylistOwnerMute();
@@ -8585,6 +8717,9 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
             }
         }
 
+        haltPlaybackOnFatalError(`RustAudio es obligatorio para reproducir: ${nombreMostrar}.`);
+        return;
+
         const syncLoadedMetadataDuration = () => {
             const metadataDuration = parseFiniteCueValue(nextPlayer.duration);
             if (metadataDuration !== null && metadataDuration > 0 && (baseDur <= 0 || Math.abs(metadataDuration - baseDur) > 1)) {
@@ -8972,7 +9107,7 @@ window.addEventListener('keydown', (e) => {
         case 'p': e.preventDefault(); resumeCurrentPlayback(); break;
         case 's': e.preventDefault(); stopAll(); break;
         case 'n': e.preventDefault(); skipToNextTrack(); break;
-        case 'q': e.preventDefault(); const selectedQ = resolveNextOperationalRow(document.querySelector('.selected-row'), false); if (selectedQ) { queuedNextRow = selectedQ; updateNextTrackVisuals(); } break;
+        case 'q': e.preventDefault(); const selectedQ = resolveNextOperationalRow(document.querySelector('.selected-row'), false); if (selectedQ) { setQueuedNextManual(selectedQ); } break;
         case 'f': e.preventDefault(); toggleStopAfter(); break;
         case 'delete': e.preventDefault(); const selected = document.querySelectorAll('.selected-row'); if (selected.length > 0) { selected.forEach(el => el.remove()); calcularHorasPlaylist(); updateNextTrackVisuals(); } break;
     }

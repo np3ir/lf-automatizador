@@ -3,6 +3,7 @@ const path = require('path');
 
 let currentEventId = null;
 let commercialBlocks = [];
+let pendingGroupSelection = '';
 
 async function loadCommercialBlocksIntoSelect(selectedId = '') {
     const sel = document.getElementById('ev-commercial-block');
@@ -47,7 +48,7 @@ function syncSourceTypeUi() {
 
 async function loadGroupsIntoSelect() {
     const sel = document.getElementById('ev-group');
-    const currentVal = sel.value;
+    const currentVal = pendingGroupSelection || sel.value;
     sel.innerHTML = '';
     
     try {
@@ -74,6 +75,7 @@ async function loadGroupsIntoSelect() {
 
     if (currentVal && Array.from(sel.options).some(o => o.value === currentVal)) {
         sel.value = currentVal;
+        pendingGroupSelection = '';
     }
 }
 // Cargar al iniciar
@@ -413,7 +415,9 @@ ipcRenderer.on('load-event-data', (e, data) => {
     document.getElementById('ev-name').value = (data.name && data.name !== 'undefined') ? data.name : '';
     
     if (data.group) {
+        pendingGroupSelection = data.group;
         document.getElementById('ev-group').value = data.group;
+        loadGroupsIntoSelect();
     }
     
     document.getElementById('ev-time').value = data.primaryTime;

@@ -5,45 +5,45 @@
     <title>Emisor de Radio (Encoder)</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        body { 
-            background: #1a1a1c; 
-            color: #e0e0e0; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            margin: 0; 
-            padding: 15px; 
-            overflow-x: hidden; 
+        body {
+            background: #1a1a1c;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 15px;
+            overflow-x: hidden;
             user-select: none;
             -webkit-user-select: none;
         }
-        
-        .enc-header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: 15px; 
-            border-bottom: 1px solid #333; 
-            padding-bottom: 10px; 
+
+        .enc-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
         }
-        
-        .enc-tabs { 
-            display: flex; 
-            background-color: #1a1a1c; 
-            border-bottom: 1px solid #333; 
-            margin-bottom: 15px; 
+
+        .enc-tabs {
+            display: flex;
+            background-color: #1a1a1c;
+            border-bottom: 1px solid #333;
+            margin-bottom: 15px;
         }
-        
-        .tab-btn { 
-            flex: 1; 
-            background: none; 
-            border: none; 
-            color: #aaa; 
-            padding: 10px 5px; 
-            cursor: pointer; 
-            font-weight: bold; 
+
+        .tab-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: #aaa;
+            padding: 10px 5px;
+            cursor: pointer;
+            font-weight: bold;
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            transition: 0.2s; 
+            transition: 0.2s;
             border-bottom: 2px solid transparent;
             display: flex;
             align-items: center;
@@ -51,265 +51,265 @@
             gap: 6px;
             outline: none;
         }
-        
-        .tab-btn:hover { 
-            background-color: rgba(255, 255, 255, 0.05); 
-            color: white; 
+
+        .tab-btn:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: white;
         }
-        
-        .tab-btn.active { 
-            color: white; 
-            border-bottom: 2px solid #00a8ff; 
-            background-color: #222225; 
+
+        .tab-btn.active {
+            color: white;
+            border-bottom: 2px solid #00a8ff;
+            background-color: #222225;
         }
-        
+
         .enc-pane { display: none; }
         .enc-pane.active { display: block; }
-        
-        .fieldset-dark { 
-            border: 1px solid #333; 
-            padding: 15px; 
-            border-radius: 4px; 
-            margin-bottom: 15px; 
+
+        .fieldset-dark {
+            border: 1px solid #333;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
             background: #222225;
         }
-        
-        .fieldset-dark legend { 
-            font-size: 11px; 
-            font-weight: bold; 
-            color: #00a8ff; 
-            padding: 0 8px; 
+
+        .fieldset-dark legend {
+            font-size: 11px;
+            font-weight: bold;
+            color: #00a8ff;
+            padding: 0 8px;
             letter-spacing: 0.5px;
             text-transform: uppercase;
         }
-        
-        .row { 
-            display: flex; 
-            align-items: center; 
-            margin-bottom: 10px; 
-            gap: 10px; 
+
+        .row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            gap: 10px;
         }
-        
-        .row label { 
-            width: 140px; 
-            font-size: 12px; 
-            color: #bbb; 
+
+        .row label {
+            width: 140px;
+            font-size: 12px;
+            color: #bbb;
         }
-        
-        .enc-input { 
-            flex: 1; 
-            background: #111; 
-            border: 1px solid #333; 
-            color: #fff; 
-            padding: 6px 10px; 
-            border-radius: 4px; 
-            font-size: 13px; 
-            outline: none; 
+
+        .enc-input {
+            flex: 1;
+            background: #111;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            outline: none;
             transition: 0.2s;
         }
-        
-        .enc-input:focus { 
-            border-color: #00a8ff; 
+
+        .enc-input:focus {
+            border-color: #00a8ff;
         }
-        
-        .dark-select { 
-            appearance: none; 
-            cursor: pointer; 
+
+        .dark-select {
+            appearance: none;
+            cursor: pointer;
             background-image: url("data:image/svg+xml;utf8,<svg fill='white' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
             background-repeat: no-repeat;
             background-position: right 8px center;
             background-size: 18px;
             padding-right: 30px;
         }
-        
-        .footer-bar { 
-            position: fixed; 
-            bottom: 0; 
-            left: 0; 
-            right: 0; 
-            padding: 12px 20px; 
-            background: #1a1a1c; 
-            border-top: 1px solid #333; 
-            display: flex; 
-            justify-content: flex-end; 
+
+        .footer-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 12px 20px;
+            background: #1a1a1c;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: flex-end;
             z-index: 10;
         }
-        
-        .enc-btn { 
-            background: #1c5d99; 
-            border: 1px solid #00a8ff; 
-            color: white; 
-            padding: 9px 24px; 
-            border-radius: 4px; 
-            font-weight: bold; 
-            cursor: pointer; 
-            font-size: 12px; 
+
+        .enc-btn {
+            background: #1c5d99;
+            border: 1px solid #00a8ff;
+            color: white;
+            padding: 9px 24px;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 12px;
             transition: 0.2s;
             letter-spacing: 0.5px;
             text-transform: uppercase;
         }
-        
-        .enc-btn:hover { 
-            background: #00a8ff; 
+
+        .enc-btn:hover {
+            background: #00a8ff;
             border-color: #00a8ff;
             box-shadow: 0 0 10px rgba(0, 168, 255, 0.45);
         }
-        
-        .enc-btn.stop { 
-            background: #c0392b; 
-            border-color: #e74c3c; 
+
+        .enc-btn.stop {
+            background: #c0392b;
+            border-color: #e74c3c;
         }
-        
-        .enc-btn.stop:hover { 
-            background: #e74c3c; 
+
+        .enc-btn.stop:hover {
+            background: #e74c3c;
             border-color: #ff5858;
             box-shadow: 0 0 10px rgba(231, 76, 60, 0.45);
         }
-        
-        .status-badge { 
-            padding: 4px 10px; 
-            border-radius: 12px; 
-            font-size: 10px; 
-            font-weight: bold; 
-            text-transform: uppercase; 
+
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
-        .status-off { 
-            background: #2d2f34; 
-            color: #8f96a3; 
-            border: 1px solid #3a3d43; 
+
+        .status-off {
+            background: #2d2f34;
+            color: #8f96a3;
+            border: 1px solid #3a3d43;
         }
-        
-        .status-on { 
-            background: rgba(46, 204, 113, 0.15); 
-            color: #2ecc71; 
-            border: 1px solid #27ae60; 
-            animation: blink 2s infinite; 
+
+        .status-on {
+            background: rgba(46, 204, 113, 0.15);
+            color: #2ecc71;
+            border: 1px solid #27ae60;
+            animation: blink 2s infinite;
         }
-        
-        @keyframes blink { 
-            0% { opacity: 1; } 
-            50% { opacity: 0.6; } 
-            100% { opacity: 1; } 
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.6; }
+            100% { opacity: 1; }
         }
-        
-        .enc-stats { 
-            display: grid; 
-            grid-template-columns: 1fr 1fr; 
-            gap: 10px; 
-            margin-top: 15px; 
+
+        .enc-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
         }
-        
-        .stat-card { 
-            background: #222225; 
-            border: 1px solid #333; 
-            padding: 10px 12px; 
-            border-radius: 4px; 
+
+        .stat-card {
+            background: #222225;
+            border: 1px solid #333;
+            padding: 10px 12px;
+            border-radius: 4px;
         }
-        
-        .stat-label { 
-            font-size: 10px; 
-            color: #8f96a3; 
-            text-transform: uppercase; 
-            margin-bottom: 5px; 
-            display: block; 
+
+        .stat-label {
+            font-size: 10px;
+            color: #8f96a3;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+            display: block;
             letter-spacing: 0.5px;
         }
-        
-        .stat-value { 
-            font-size: 16px; 
-            font-weight: bold; 
-            color: #00a8ff; 
-            font-family: 'Consolas', monospace; 
+
+        .stat-value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #00a8ff;
+            font-family: 'Consolas', monospace;
         }
-        
-        .enc-log-box { 
-            background: #111; 
-            border: 1px solid #333; 
-            height: 120px; 
-            overflow-y: auto; 
-            padding: 10px; 
-            font-family: 'Consolas', monospace; 
-            font-size: 11px; 
-            color: #777; 
-            margin-top: 10px; 
-            border-radius: 4px; 
+
+        .enc-log-box {
+            background: #111;
+            border: 1px solid #333;
+            height: 120px;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: 'Consolas', monospace;
+            font-size: 11px;
+            color: #777;
+            margin-top: 10px;
+            border-radius: 4px;
         }
-        
-        .enc-input-meter-container { 
-            margin-top: 15px; 
-            padding: 12px; 
-            background: #222225; 
-            border: 1px solid #333; 
-            border-radius: 4px; 
+
+        .enc-input-meter-container {
+            margin-top: 15px;
+            padding: 12px;
+            background: #222225;
+            border: 1px solid #333;
+            border-radius: 4px;
         }
-        
-        .enc-input-meter-header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: 8px; 
+
+        .enc-input-meter-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
         }
-        
-        .enc-input-meter-title { 
-            font-size: 10px; 
-            color: #8f96a3; 
-            text-transform: uppercase; 
-            font-weight: bold; 
+
+        .enc-input-meter-title {
+            font-size: 10px;
+            color: #8f96a3;
+            text-transform: uppercase;
+            font-weight: bold;
             letter-spacing: 0.5px;
         }
-        
-        .enc-input-meter-values { 
-            font-size: 11px; 
-            color: #aaa; 
-            font-family: 'Consolas', monospace; 
+
+        .enc-input-meter-values {
+            font-size: 11px;
+            color: #aaa;
+            font-family: 'Consolas', monospace;
         }
-        
-        .enc-input-meter-bar { 
-            height: 12px; 
-            background: #111; 
-            border-radius: 6px; 
-            overflow: hidden; 
-            position: relative; 
-            border: 1px solid #333; 
+
+        .enc-input-meter-bar {
+            height: 12px;
+            background: #111;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #333;
         }
-        
-        .vu-gradient { 
-            position: absolute; 
-            left: 0; 
-            right: 0; 
-            top: 0; 
-            bottom: 0; 
-            background: linear-gradient(to right, #27ae60 0%, #27ae60 79.5%, #f39c12 79.5%, #f39c12 89.7%, #e74c3c 89.7%, #e74c3c 100%); 
+
+        .vu-gradient {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            background: linear-gradient(to right, #27ae60 0%, #27ae60 79.5%, #f39c12 79.5%, #f39c12 89.7%, #e74c3c 89.7%, #e74c3c 100%);
         }
-        
-        .vu-cover { 
-            position: absolute; 
-            right: 0; 
-            top: 0; 
-            bottom: 0; 
-            width: 100%; 
-            background: #111; 
-            transition: width 0.05s linear; 
+
+        .vu-cover {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+            background: #111;
+            transition: width 0.02s linear;
         }
 
         /* Scrollbars */
         ::-webkit-scrollbar {
-            width: 10px; 
-            height: 10px; 
+            width: 10px;
+            height: 10px;
         }
         ::-webkit-scrollbar-track {
-            background: #1a1a1c; 
-            border-left: 1px solid #333; 
+            background: #1a1a1c;
+            border-left: 1px solid #333;
         }
         ::-webkit-scrollbar-thumb {
-            background: #444; 
-            border-radius: 4px; 
-            border: 2px solid #1a1a1c; 
+            background: #444;
+            border-radius: 4px;
+            border: 2px solid #1a1a1c;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background: #00a8ff; 
+            background: #00a8ff;
         }
     </style>
 </head>
@@ -349,8 +349,8 @@
                 <div class="vu-cover" id="enc-input-meter-cover"></div>
             </div>
         </div>
-        
-        <p style="margin: 15px 0 5px 0; font-size: 11px; color: #888; font-weight: bold;">Registro de Emisión (Log):</p>
+
+        <p style="margin: 15px 0 5px 0; font-size: 11px; color: #888; font-weight: bold;">Registro de EmisiÃ³n (Log):</p>
         <div class="enc-log-box" id="enc-log"></div>
     </div>
 
@@ -361,7 +361,7 @@
                 <label>Tipo Servidor:</label>
                 <select id="enc-type" class="enc-input dark-select">
                     <option value="icecast">Icecast (ZenoRadio, Listen2MyRadio)</option>
-                    <option value="shoutcast">Shoutcast (Clásico)</option>
+                    <option value="shoutcast">Shoutcast (ClÃ¡sico)</option>
                 </select>
             </div>
             <div class="row">
@@ -387,7 +387,7 @@
                 <input type="text" id="enc-port" class="enc-input" placeholder="ej. 80">
             </div>
             <div class="row">
-                <label>Contraseña:</label>
+                <label>ContraseÃ±a:</label>
                 <input type="password" id="enc-pass" class="enc-input" placeholder="Mountpass (Zeno) o Password">
             </div>
             <div class="row" id="row-mount">
@@ -401,18 +401,18 @@
             <div class="row">
                 <label>Origen de Audio:</label>
                 <select id="enc-source" class="enc-input dark-select">
-                    <option value="master">💻 Mezcla Interna (Master PC)</option>
-                    <option value="mic">🎤 Entrada Externa (Consola de Audio/Mic)</option>
+                    <option value="master">ðŸ’» Mezcla Interna (Master PC)</option>
+                    <option value="mic">ðŸŽ¤ Entrada Externa (Consola de Audio/Mic)</option>
                 </select>
             </div>
             <div class="row" id="row-mic" style="display: none;">
-                <label>Tarjeta / Línea:</label>
+                <label>Tarjeta / LÃ­nea:</label>
                 <select id="enc-mic" class="enc-input dark-select"></select>
             </div>
             <div class="row">
                 <label>Formato (Codec):</label>
                 <select id="enc-codec" class="enc-input dark-select">
-                    <option value="mp3" selected>MP3 (Universal/Clásico)</option>
+                    <option value="mp3" selected>MP3 (Universal/ClÃ¡sico)</option>
                     <option value="aac">AAC (Alta eficiencia, ZenoRadio)</option>
                 </select>
             </div>
@@ -420,7 +420,7 @@
                 <label>Calidad (Bitrate):</label>
                 <select id="enc-bitrate" class="enc-input dark-select">
                     <option value="64">64 kbps (Bajo consumo)</option>
-                    <option value="128" selected>128 kbps (Recomendado/Estándar)</option>
+                    <option value="128" selected>128 kbps (Recomendado/EstÃ¡ndar)</option>
                     <option value="192">192 kbps (Alta Calidad)</option>
                     <option value="320">320 kbps (Estudio/HD)</option>
                 </select>
@@ -429,9 +429,9 @@
     </div>
 
     <div class="footer-bar" style="margin-top: 50px;">
-        <button id="btn-connect" class="enc-btn">📡 CONECTAR SERVIDOR</button>
+        <button id="btn-connect" class="enc-btn">ðŸ“¡ CONECTAR SERVIDOR</button>
     </div>
-    
+
     <script src="encoder.js"></script>
 </body>
 </html>

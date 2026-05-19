@@ -2570,6 +2570,13 @@ fn ensure_output(state: &mut EngineState, requested_id: &str) -> Result<(String,
 
 fn load_audio_player(state: &mut EngineState, player_id: &str, file_path: &str, gain: f32, paused: bool, output_id: &str, bus_id: &str) -> Result<(), String> {
     let (resolved_output_id, resolved_output_name) = ensure_output(state, output_id)?;
+    if is_program_bus(bus_id) && state.program_mixer_input.is_none() {
+        let master_output_id = state.routes.get("master")
+            .map(|r| r.output_device_id.clone())
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or_else(|| resolved_output_id.clone());
+        ensure_program_mixer(state, &master_output_id)?;
+    }
     // FASE D · sub-paso 7.4: decidir destino del player ANTES de pedir el
     // output (evita conflicto de borrows). `Mixer` es Clone barato (Arc
     // interno). Si el bus es de programa y el sub-mixer ya existe, el player
@@ -2849,7 +2856,7 @@ fn ensure_program_mixer(state: &mut EngineState, output_id: &str) -> Result<(), 
     // física.
     //
     // Ring ENCODER (16 384 samples / ~186 ms): más grande porque se drena
-    // sólo cada 100 ms en el PushTick. No queremos perder samples para el
+    // sólo cada 20 ms en el PushTick. No queremos perder samples para el
     // aire en internet.
     //
     // 4 rings totales: monitor_pre, monitor_post, encoder_pre, encoder_post.
@@ -3350,6 +3357,13 @@ fn start_time_locution(
     // salida debe ser la del routing de ese bus, no la del default.
     let routed_output_id = resolve_output_for_bus(state, bus_id, output_id);
     let (resolved_output_id, _) = ensure_output(state, &routed_output_id)?;
+    if is_program_bus(bus_id) && state.program_mixer_input.is_none() {
+        let master_output_id = state.routes.get("master")
+            .map(|r| r.output_device_id.clone())
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or_else(|| resolved_output_id.clone());
+        ensure_program_mixer(state, &master_output_id)?;
+    }
 
     // FASE D · sub-paso 7.5: si la locución va a un bus de programa y el
     // sub-mixer está vivo, conectamos al sub-mixer (mismo path que las
@@ -3616,7 +3630,7 @@ fn main() {
                 state.dsp_params.monitor_gain_bits.store(gain.to_bits(), Ordering::Relaxed);
             }
             // ── FASE D · sub-paso 8.2: activar/desactivar el tap del encoder.
-            // Cuando `enable=true`, cada PushTick (cada 100 ms) drena el ring
+            // Cuando `enable=true`, cada PushTick (cada 20 ms) drena el ring
             // del encoder_tap y emite un mensaje `pcmChunk` por stdout. El
             // probe Node lo recibe y lo pipea al stdin de FFmpeg.
             "encoderTap" => {

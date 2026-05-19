@@ -224,6 +224,12 @@ module.exports = function(context) {
         if (hasSignal) {
             stats.lastInputSignalAt = now;
             stats.inputSilentMs = 0;
+            stats.inputSilenceLogCount = 0;
+            stats.inputSilenceSuppressed = false;
+            stats.inputSilentSummaryLogCount = 0;
+            stats.inputSilentSummarySuppressed = false;
+            context.rustPcmSilenceFallbackLogCount = 0;
+            context.rustPcmSilenceFallbackSuppressed = false;
         } else {
             stats.inputSilentMs = stats.lastInputSignalAt ? now - stats.lastInputSignalAt : now - stats.startedAt;
         }
@@ -232,7 +238,7 @@ module.exports = function(context) {
         stats.inputPeakDb = level.peakDb;
         stats.inputRmsDb = level.rmsDb;
 
-        if (context.encoderWindow && !context.encoderWindow.isDestroyed() && now - stats.lastInputMeterAt > 150) {
+        if (context.encoderWindow && !context.encoderWindow.isDestroyed() && now - stats.lastInputMeterAt >= 20) {
             stats.lastInputMeterAt = now;
             context.encoderWindow.webContents.send('encoder-input-meter', {
                 source,
@@ -250,13 +256,30 @@ module.exports = function(context) {
 
         if (!hasSignal && stats.inputSilentMs > 8000 && now - (stats.lastInputSilenceLogAt || 0) > 30000) {
             stats.lastInputSilenceLogAt = now;
-            writeLog(`Encoder entrada PCM sin senal (${source}) por ${Math.round(stats.inputSilentMs / 1000)}s. FFmpeg sigue recibiendo datos.`);
+            stats.inputSilenceLogCount = (stats.inputSilenceLogCount || 0) + 1;
+            if (stats.inputSilenceLogCount <= 3) {
+                writeLog(`Encoder entrada PCM sin senal (${source}) por ${Math.round(stats.inputSilentMs / 1000)}s. FFmpeg sigue recibiendo datos.`);
+            } else if (!stats.inputSilenceSuppressed) {
+                stats.inputSilenceSuppressed = true;
+                writeLog(`Encoder entrada PCM sin senal (${source}): se silencian avisos repetidos hasta recuperar audio.`);
+            }
         }
     }
 
     function logEncoderWriteStats(reason = 'summary') {
         const stats = context.encoderWriteStats;
         if (!stats || !stats.chunks) return;
+        if (reason === 'minute' && (stats.inputSilentMs || 0) > 8000) {
+            stats.inputSilentSummaryLogCount = (stats.inputSilentSummaryLogCount || 0) + 1;
+            if (stats.inputSilentSummaryLogCount > 3) {
+                if (!stats.inputSilentSummarySuppressed) {
+                    stats.inputSilentSummarySuppressed = true;
+                    writeLog('Encoder PCM minute: se silencian resumenes repetidos mientras la entrada siga sin senal.');
+                }
+                stats.lastSummaryAt = Date.now();
+                return;
+            }
+        }
         const elapsedSec = Math.max(0.001, (Date.now() - stats.startedAt) / 1000);
         const kbps = (stats.bytes * 8 / 1000 / elapsedSec).toFixed(1);
         const flowControlEvents = stats.flowControlEvents || stats.backpressure || 0;
@@ -495,7 +518,7 @@ module.exports = function(context) {
 
         // FASE D · sub-paso 8.2 — Encoder 100% Rust nativo, sin WebAudio.
         // El motor escribe chunks PCM s16le base64 por stdout en cada PushTick
-        // (100 ms). El probe Node los decodifica y se los entrega a este
+        // (20 ms). El probe Node los decodifica y se los entrega a este
         // callback, que los pipea al stdin de FFmpeg. Sin proceso bridge
         // adicional, sin WebAudio MediaStream, sin Renderer en el medio.
         engine.attachPcmConsumer(chunk => writeEncoderAudioChunk(chunk, 'rust-pcm'));
@@ -565,6 +588,14 @@ module.exports = function(context) {
         const rustStatus = tapActive
             ? { tap: true, running: engine.isRunning(), activePlayers: null }
             : (context.rustPcmEncoderSource?.status?.() || {});
+        context.rustPcmSilenceFallbackLogCount = (context.rustPcmSilenceFallbackLogCount || 0) + 1;
+        if (context.rustPcmSilenceFallbackLogCount > 3) {
+            if (!context.rustPcmSilenceFallbackSuppressed) {
+                context.rustPcmSilenceFallbackSuppressed = true;
+                writeLog('Rust PCM encoder fallback por silencio: se silencian avisos repetidos hasta recuperar audio.');
+            }
+            return;
+        }
         startWebAudioEncoderFallback(
             (Number(rustStatus.activePlayers) || 0) > 0
                 ? 'rust-pcm-silent-with-active-players'

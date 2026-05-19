@@ -51,7 +51,7 @@ class RustAudioEngineProbe {
         // FASE D · sub-paso 8.2 — Tap del encoder directo desde Rust.
         // Cuando el lado JS arranca el encoder, llama attachPcmConsumer(cb)
         // y el probe envía `encoderTap { enable: true }` al motor. Cada
-        // PushTick (100 ms) el motor emite un mensaje `pcmChunk` con base64
+        // PushTick (20 ms) el motor emite un mensaje `pcmChunk` con base64
         // del PCM s16le acumulado. handleLine lo decodifica y se lo entrega
         // al callback registrado. Eso reemplaza al viejo RustPcmBridgeEncoderSource
         // (que estaba referenciado pero nunca implementado).
@@ -236,7 +236,7 @@ class RustAudioEngineProbe {
             return;
         }
         // FASE D · sub-paso 8.2: chunks PCM del bus encoder. Llegan en cada
-        // PushTick (100 ms) si encoder_tap_active=true en Rust. NO van por
+        // PushTick (20 ms) si encoder_tap_active=true en Rust. NO van por
         // pending ni se loguean al jsonl (volumen alto: ~10/s). Se decodifican
         // y se entregan al callback registrado por attachPcmConsumer.
         if (message?.type === 'pcmChunk') {
