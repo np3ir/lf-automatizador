@@ -281,6 +281,64 @@ function updateInputMeter(report = {}) {
     if (inputMeterEl) inputMeterEl.classList.toggle('warn', silent);
 }
 
+function rawRustMeterToDb(value) {
+    const amp = Math.max(0, Math.min(100, Number(value) || 0)) / 100;
+    if (amp <= 0.000001) return -120;
+    return Math.max(-120, 20 * Math.log10(amp));
+}
+
+function mergeRustInputMeters(levels = []) {
+    return levels.reduce((acc, meter) => {
+        if (!meter) return acc;
+        const left = Math.max(0, Math.min(100, Number(meter.left) || 0));
+        const right = Math.max(0, Math.min(100, Number(meter.right) || 0));
+        const rawPeak = Math.max(left, right);
+        acc.peak = Math.max(acc.peak, rawPeak / 100);
+        acc.db = Math.max(acc.db, Number.isFinite(Number(meter.db)) ? Number(meter.db) : rawRustMeterToDb(rawPeak));
+        return acc;
+    }, { peak: 0, db: -120 });
+}
+
+function getEncoderRustInputMeter(status = {}) {
+    const meters = Array.isArray(status.meters) ? status.meters : [];
+    if (!meters.length) return null;
+    const byBus = new Map();
+    meters.forEach(meter => {
+        const bus = String(meter?.bus || '').toLowerCase();
+        if (!bus) return;
+        const current = byBus.get(bus) || [];
+        current.push(meter);
+        byBus.set(bus, current);
+    });
+    if (byBus.has('master')) return mergeRustInputMeters(byBus.get('master'));
+    return mergeRustInputMeters([
+        ...(byBus.get('pl1') || []),
+        ...(byBus.get('pl2') || []),
+        ...(byBus.get('pl3') || []),
+        ...(byBus.get('pl4') || []),
+        ...(byBus.get('jingle') || []),
+        ...(byBus.get('cartwall') || [])
+    ]);
+}
+
+function updateInputMeterFromRustStatus(status = {}) {
+    const now = Date.now();
+    if (now - lastInputMeterAt < 20) return;
+    const meter = getEncoderRustInputMeter(status);
+    if (!meter) return;
+    updateInputMeter({
+        source: 'rustAudioEngine',
+        captureProvider: status.encoder?.captureProvider || status.encoder?.owner || 'rustAudioEngine',
+        peak: meter.peak,
+        rms: meter.peak,
+        peakDb: meter.db,
+        rmsDb: meter.db,
+        hasSignal: meter.peak > 0.0008,
+        silentMs: meter.peak > 0.0008 ? 0 : undefined,
+        updatedAt: now
+    });
+}
+
 function encLog(msg, type = 'info') {
     const d = new Date().toLocaleTimeString('es-PE', { hour12: false });
     let color = '#ccc';
@@ -570,6 +628,11 @@ ipcRenderer.on('encoder-capture-health', (e, report) => {
 
 ipcRenderer.on('encoder-input-meter', (e, report) => {
     updateInputMeter(report);
+});
+
+ipcRenderer.on('audio-engine-rust-event', (e, message) => {
+    if (!message || message.type !== 'status') return;
+    updateInputMeterFromRustStatus(message);
 });
 
 resetThroughputStats();

@@ -65,7 +65,7 @@ const PREANALYSIS_BATCH_DELAY_MS = 900;
 const RANDOM_WARM_LOOKAHEAD_ROWS = 12;
 const RANDOM_FOLDER_CACHE_TTL_MS = 60000;
 const TIME_UI_FRAME_INTERVAL_MS = 50;
-const VU_IPC_INTERVAL_MS = 50;
+const VU_IPC_INTERVAL_MS = 20;
 const VU_DIAGNOSTICS_IPC_INTERVAL_MS = 1000;
 // RUST_LIVE_METER_POLL_MS / RUST_IDLE_STATUS_POLL_MS: retiradas del flujo.
 // El motor Rust ahora emite `status` por su propio bucle PushTick (100 ms) y

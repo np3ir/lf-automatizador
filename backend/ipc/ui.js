@@ -182,19 +182,99 @@ module.exports = function(context) {
         try { return context.rustAudioEngine?.status?.()?.running === true; }
         catch (err) { return false; }
     }
+    function __rustMeterRawToVisualPercent(value) {
+        const amp = Math.max(0, Math.min(100, Number(value) || 0)) / 100;
+        if (amp <= 0.0001) return 0;
+        const db = 20 * Math.log10(amp);
+        if (db < -36) return 0;
+        if (db > 3) return 100;
+        return ((db + 36) / 39) * 100;
+    }
+    function __rustMeterToLevel(meter = {}) {
+        const rawLeft = Math.max(0, Math.min(100, Number(meter.left) || 0));
+        const rawRight = Math.max(0, Math.min(100, Number(meter.right) || 0));
+        const left = __rustMeterRawToVisualPercent(rawLeft);
+        const right = __rustMeterRawToVisualPercent(rawRight);
+        const rawPeak = Math.max(rawLeft, rawRight);
+        const db = Number.isFinite(Number(meter.db))
+            ? Number(meter.db)
+            : (rawPeak > 0 ? 20 * Math.log10(rawPeak / 100) : Number.NEGATIVE_INFINITY);
+        return { left, right, max: Math.max(left, right), db };
+    }
+    function __mergeRustLevels(levels = []) {
+        return levels.reduce((acc, level) => {
+            if (!level) return acc;
+            acc.left = Math.max(acc.left, Number(level.left) || 0);
+            acc.right = Math.max(acc.right, Number(level.right) || 0);
+            acc.max = Math.max(acc.max, Number(level.max) || 0);
+            acc.db = Math.max(acc.db, Number.isFinite(Number(level.db)) ? Number(level.db) : Number.NEGATIVE_INFINITY);
+            return acc;
+        }, { left: 0, right: 0, max: 0, db: Number.NEGATIVE_INFINITY });
+    }
+    function __deriveRustVuLevels(levels = {}) {
+        const meters = Array.isArray(levels.rustMeters) && levels.rustMeters.length
+            ? levels.rustMeters
+            : (Array.isArray(levels.diagnostics?.rustProbe?.lastStatus?.meters) ? levels.diagnostics.rustProbe.lastStatus.meters : []);
+        const byBus = new Map();
+        meters.forEach(meter => {
+            const bus = String(meter?.bus || '').toLowerCase();
+            if (!bus) return;
+            byBus.set(bus, __mergeRustLevels([byBus.get(bus), __rustMeterToLevel(meter)]));
+        });
+        const playlistMode = levels.diagnostics?.devices?.playlistMode || 'disabled';
+        const program = byBus.get('master') || __mergeRustLevels([
+            playlistMode === 'independent' ? null : byBus.get('pl1'),
+            playlistMode === 'independent' ? null : byBus.get('pl2'),
+            playlistMode === 'independent' ? null : byBus.get('pl3'),
+            playlistMode === 'independent' ? null : byBus.get('pl4'),
+            byBus.get('jingle'),
+            byBus.get('cartwall')
+        ]);
+        return {
+            program,
+            monitor: byBus.get('monitor') || { left: 0, right: 0, max: 0, db: Number.NEGATIVE_INFINITY },
+            cue: byBus.get('cue') || { left: 0, right: 0, max: 0, db: Number.NEGATIVE_INFINITY },
+            jingle: byBus.get('jingle') || { left: 0, right: 0, max: 0, db: Number.NEGATIVE_INFINITY },
+            cartwall: byBus.get('cartwall') || { left: 0, right: 0, max: 0, db: Number.NEGATIVE_INFINITY },
+            playlists: ['pl1', 'pl2', 'pl3', 'pl4'].map(bus => byBus.get(bus) || { left: 0, right: 0, max: 0, db: Number.NEGATIVE_INFINITY })
+        };
+    }
     function __stripWebAudioAmplitude(levels = {}) {
-        // Mantiene diagnósticos y meters Rust; pisa todo lo demás con ceros.
+        // Mantiene diagnosticos y meters Rust; pisa amplitudes WebAudio, pero
+        // reconstruye la senal visible desde Rust para no dejar la UI en -inf.
+        const rust = __deriveRustVuLevels(levels);
         return {
             ...levels,
-            pgm: 0,
-            monitor: 0,
-            cue: 0,
-            jingle: 0,
-            cartwall: 0,
-            playlists: Array.isArray(levels.playlists) ? levels.playlists.map(() => 0) : [],
-            dbs: {},
-            stereo: {},
-            stereoDbs: {}
+            pgm: rust.program.max,
+            monitor: rust.monitor.max,
+            cue: rust.cue.max,
+            jingle: rust.jingle.max,
+            cartwall: rust.cartwall.max,
+            playlists: rust.playlists.map(level => level.max),
+            stereo: {
+                pgm: { left: rust.program.left, right: rust.program.right },
+                monitor: { left: rust.monitor.left, right: rust.monitor.right },
+                cue: { left: rust.cue.left, right: rust.cue.right },
+                jingle: { left: rust.jingle.left, right: rust.jingle.right },
+                cartwall: { left: rust.cartwall.left, right: rust.cartwall.right },
+                playlists: rust.playlists.map(level => ({ left: level.left, right: level.right }))
+            },
+            dbs: {
+                pgm: rust.program.db,
+                monitor: rust.monitor.db,
+                cue: rust.cue.db,
+                jingle: rust.jingle.db,
+                cartwall: rust.cartwall.db,
+                playlists: rust.playlists.map(level => level.db)
+            },
+            stereoDbs: {
+                pgm: { left: rust.program.db, right: rust.program.db },
+                monitor: { left: rust.monitor.db, right: rust.monitor.db },
+                cue: { left: rust.cue.db, right: rust.cue.db },
+                jingle: { left: rust.jingle.db, right: rust.jingle.db },
+                cartwall: { left: rust.cartwall.db, right: rust.cartwall.db },
+                playlists: rust.playlists.map(level => ({ left: level.db, right: level.db }))
+            }
         };
     }
 

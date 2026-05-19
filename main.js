@@ -165,6 +165,9 @@ const rustAudioEngine = new RustAudioEngineProbe({
             if (consoleWindow && !consoleWindow.isDestroyed()) {
                 consoleWindow.webContents.send('audio-engine-rust-event', message);
             }
+            if (encoderWindow && !encoderWindow.isDestroyed()) {
+                encoderWindow.webContents.send('audio-engine-rust-event', message);
+            }
         } catch (err) {}
     }
 });
