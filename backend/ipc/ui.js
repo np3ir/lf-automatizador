@@ -146,7 +146,7 @@ module.exports = function(context) {
     ipcMain.on('open-console', () => {
         if (context.consoleWindow) { context.consoleWindow.focus(); return; }
         context.consoleWindow = new BrowserWindow({ icon: require('electron').nativeImage.createFromPath(require('path').join(__dirname, '..', '..', 'assets', 'icons', 'console.png')), 
-            width: 1280, height: 760, minWidth: 980, minHeight: 620, title: 'Consola Virtual de Monitoreo',
+            width: 1280, height: 420, minWidth: 980, minHeight: 320, title: 'Consola Virtual de Monitoreo',
             autoHideMenuBar: true, resizable: true, maximizable: true,
             webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
         });

@@ -11,7 +11,7 @@
             font-family: Consolas, monospace;
             padding: 18px 20px;
             box-sizing: border-box;
-            overflow-x: hidden;
+            overflow: hidden;
         }
         * { box-sizing: border-box; }
         h3 {
@@ -184,7 +184,7 @@
         }
         .vu-meter-bg {
             width: 14px;
-            height: min(188px, 26vh);
+            height: clamp(100px, calc(100vh - 220px), 500px);
             background: linear-gradient(to top, #27ae60 0%, #27ae60 79.5%, #f39c12 79.5%, #f39c12 89.7%, #e74c3c 89.7%, #e74c3c 100%);
             position: relative;
             border: 2px solid #27313a;
