@@ -595,9 +595,12 @@ ipcMain.handle('task-manager-snapshot', async () => {
         privateKb: item.memory?.privateBytes ?? 0
     }));
     const appMetrics = metrics.filter(item => !item.diagnostic);
-    const totalMemoryKb = appMetrics.reduce((sum, item) => sum + (Number(item.memoryKb) || 0), 0);
+    // Usamos privateKb (Memoria Privada) en lugar de workingSetSize (memoryKb)
+    // para evitar contar múltiples veces las librerías DLL compartidas por Chromium,
+    // alineando el valor del resumen con lo que muestra el Administrador de Tareas de Windows.
+    const totalMemoryKb = appMetrics.reduce((sum, item) => sum + (Number(item.privateKb) || 0), 0);
     const totalCpu = appMetrics.reduce((sum, item) => sum + (Number(item.cpu) || 0), 0);
-    const diagnosticMemoryKb = metrics.filter(item => item.diagnostic).reduce((sum, item) => sum + (Number(item.memoryKb) || 0), 0);
+    const diagnosticMemoryKb = metrics.filter(item => item.diagnostic).reduce((sum, item) => sum + (Number(item.privateKb) || 0), 0);
     return {
         at: Date.now(),
         metrics,
