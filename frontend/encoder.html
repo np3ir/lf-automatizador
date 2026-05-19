@@ -3,42 +3,314 @@
 <head>
     <meta charset="UTF-8">
     <title>Emisor de Radio (Encoder)</title>
-    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="style.css">
     <style>
-        body { background: #0b0d0f; color: #e0e0e0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 15px; overflow-x: hidden; }
-        .enc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 10px; }
-        .enc-tabs { display: flex; gap: 5px; margin-bottom: 15px; }
-        .tab-btn { flex: 1; padding: 8px; background: #1a1c1e; border: 1px solid #333; color: #888; cursor: pointer; font-size: 11px; font-weight: bold; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .tab-btn.active { background: #0078d7; color: #fff; border-color: #0078d7; }
+        body { 
+            background: #1a1a1c; 
+            color: #e0e0e0; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 0; 
+            padding: 15px; 
+            overflow-x: hidden; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        
+        .enc-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 15px; 
+            border-bottom: 1px solid #333; 
+            padding-bottom: 10px; 
+        }
+        
+        .enc-tabs { 
+            display: flex; 
+            background-color: #1a1a1c; 
+            border-bottom: 1px solid #333; 
+            margin-bottom: 15px; 
+        }
+        
+        .tab-btn { 
+            flex: 1; 
+            background: none; 
+            border: none; 
+            color: #aaa; 
+            padding: 10px 5px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: 0.2s; 
+            border-bottom: 2px solid transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            outline: none;
+        }
+        
+        .tab-btn:hover { 
+            background-color: rgba(255, 255, 255, 0.05); 
+            color: white; 
+        }
+        
+        .tab-btn.active { 
+            color: white; 
+            border-bottom: 2px solid #00a8ff; 
+            background-color: #222225; 
+        }
+        
         .enc-pane { display: none; }
         .enc-pane.active { display: block; }
-        .fieldset-dark { border: 1px solid #333; padding: 12px; border-radius: 4px; margin-bottom: 10px; }
-        .fieldset-dark legend { font-size: 11px; font-weight: bold; color: #0078d7; padding: 0 5px; }
-        .row { display: flex; align-items: center; margin-bottom: 8px; gap: 10px; }
-        .row label { width: 130px; font-size: 12px; color: #bbb; }
-        .enc-input { flex: 1; background: #16181b; border: 1px solid #333; color: #eee; padding: 6px 10px; border-radius: 3px; font-size: 13px; outline: none; }
-        .enc-input:focus { border-color: #0078d7; }
-        .dark-select { appearance: none; cursor: pointer; }
-        .footer-bar { position: fixed; bottom: 0; left: 0; right: 0; padding: 10px 15px; background: #1a1c1e; border-top: 1px solid #333; display: flex; justify-content: flex-end; }
-        .enc-btn { background: #d84315; color: white; border: none; padding: 8px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 13px; }
-        .enc-btn:hover { background: #f4511e; }
-        .enc-btn.active { background: #2e7d32; }
-        .enc-btn.active:hover { background: #388e3c; }
-        .status-badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-        .status-off { background: #333; color: #888; }
-        .status-on { background: #1b5e20; color: #81c784; animation: blink 2s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
-        .enc-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
-        .stat-card { background: #16181b; border: 1px solid #222; padding: 10px; border-radius: 4px; }
-        .stat-label { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 5px; display: block; }
-        .stat-value { font-size: 18px; font-weight: bold; color: #0078d7; font-family: 'Consolas', monospace; }
-        .enc-log-box { background: #050505; border: 1px solid #222; height: 120px; overflow-y: auto; padding: 10px; font-family: 'Consolas', monospace; font-size: 11px; color: #777; margin-top: 10px; border-radius: 3px; }
-        .enc-input-meter-container { margin-top: 15px; padding: 10px; background: #16181b; border: 1px solid #222; border-radius: 4px; }
-        .enc-input-meter-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .enc-input-meter-title { font-size: 10px; color: #666; text-transform: uppercase; font-weight: bold; }
-        .enc-input-meter-values { font-size: 11px; color: #aaa; font-family: 'Consolas', monospace; }
-        .enc-input-meter-bar { height: 10px; background: #0a0a0a; border-radius: 5px; overflow: hidden; position: relative; border: 1px solid #222; }
-        .enc-input-meter-fill { position: absolute; top: 0; left: 0; height: 100%; width: 0%; background: linear-gradient(to right, #27ae60 0%, #27ae60 79.5%, #f39c12 79.5%, #f39c12 89.7%, #e74c3c 89.7%, #e74c3c 100%); transition: width 0.1s ease-out; }
+        
+        .fieldset-dark { 
+            border: 1px solid #333; 
+            padding: 15px; 
+            border-radius: 4px; 
+            margin-bottom: 15px; 
+            background: #222225;
+        }
+        
+        .fieldset-dark legend { 
+            font-size: 11px; 
+            font-weight: bold; 
+            color: #00a8ff; 
+            padding: 0 8px; 
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        
+        .row { 
+            display: flex; 
+            align-items: center; 
+            margin-bottom: 10px; 
+            gap: 10px; 
+        }
+        
+        .row label { 
+            width: 140px; 
+            font-size: 12px; 
+            color: #bbb; 
+        }
+        
+        .enc-input { 
+            flex: 1; 
+            background: #111; 
+            border: 1px solid #333; 
+            color: #fff; 
+            padding: 6px 10px; 
+            border-radius: 4px; 
+            font-size: 13px; 
+            outline: none; 
+            transition: 0.2s;
+        }
+        
+        .enc-input:focus { 
+            border-color: #00a8ff; 
+        }
+        
+        .dark-select { 
+            appearance: none; 
+            cursor: pointer; 
+            background-image: url("data:image/svg+xml;utf8,<svg fill='white' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            background-size: 18px;
+            padding-right: 30px;
+        }
+        
+        .footer-bar { 
+            position: fixed; 
+            bottom: 0; 
+            left: 0; 
+            right: 0; 
+            padding: 12px 20px; 
+            background: #1a1a1c; 
+            border-top: 1px solid #333; 
+            display: flex; 
+            justify-content: flex-end; 
+            z-index: 10;
+        }
+        
+        .enc-btn { 
+            background: #1c5d99; 
+            border: 1px solid #00a8ff; 
+            color: white; 
+            padding: 9px 24px; 
+            border-radius: 4px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            font-size: 12px; 
+            transition: 0.2s;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        
+        .enc-btn:hover { 
+            background: #00a8ff; 
+            border-color: #00a8ff;
+            box-shadow: 0 0 10px rgba(0, 168, 255, 0.45);
+        }
+        
+        .enc-btn.stop { 
+            background: #c0392b; 
+            border-color: #e74c3c; 
+        }
+        
+        .enc-btn.stop:hover { 
+            background: #e74c3c; 
+            border-color: #ff5858;
+            box-shadow: 0 0 10px rgba(231, 76, 60, 0.45);
+        }
+        
+        .status-badge { 
+            padding: 4px 10px; 
+            border-radius: 12px; 
+            font-size: 10px; 
+            font-weight: bold; 
+            text-transform: uppercase; 
+            letter-spacing: 0.5px;
+        }
+        
+        .status-off { 
+            background: #2d2f34; 
+            color: #8f96a3; 
+            border: 1px solid #3a3d43; 
+        }
+        
+        .status-on { 
+            background: rgba(46, 204, 113, 0.15); 
+            color: #2ecc71; 
+            border: 1px solid #27ae60; 
+            animation: blink 2s infinite; 
+        }
+        
+        @keyframes blink { 
+            0% { opacity: 1; } 
+            50% { opacity: 0.6; } 
+            100% { opacity: 1; } 
+        }
+        
+        .enc-stats { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr; 
+            gap: 10px; 
+            margin-top: 15px; 
+        }
+        
+        .stat-card { 
+            background: #222225; 
+            border: 1px solid #333; 
+            padding: 10px 12px; 
+            border-radius: 4px; 
+        }
+        
+        .stat-label { 
+            font-size: 10px; 
+            color: #8f96a3; 
+            text-transform: uppercase; 
+            margin-bottom: 5px; 
+            display: block; 
+            letter-spacing: 0.5px;
+        }
+        
+        .stat-value { 
+            font-size: 16px; 
+            font-weight: bold; 
+            color: #00a8ff; 
+            font-family: 'Consolas', monospace; 
+        }
+        
+        .enc-log-box { 
+            background: #111; 
+            border: 1px solid #333; 
+            height: 120px; 
+            overflow-y: auto; 
+            padding: 10px; 
+            font-family: 'Consolas', monospace; 
+            font-size: 11px; 
+            color: #777; 
+            margin-top: 10px; 
+            border-radius: 4px; 
+        }
+        
+        .enc-input-meter-container { 
+            margin-top: 15px; 
+            padding: 12px; 
+            background: #222225; 
+            border: 1px solid #333; 
+            border-radius: 4px; 
+        }
+        
+        .enc-input-meter-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 8px; 
+        }
+        
+        .enc-input-meter-title { 
+            font-size: 10px; 
+            color: #8f96a3; 
+            text-transform: uppercase; 
+            font-weight: bold; 
+            letter-spacing: 0.5px;
+        }
+        
+        .enc-input-meter-values { 
+            font-size: 11px; 
+            color: #aaa; 
+            font-family: 'Consolas', monospace; 
+        }
+        
+        .enc-input-meter-bar { 
+            height: 12px; 
+            background: #111; 
+            border-radius: 6px; 
+            overflow: hidden; 
+            position: relative; 
+            border: 1px solid #333; 
+        }
+        
+        .vu-gradient { 
+            position: absolute; 
+            left: 0; 
+            right: 0; 
+            top: 0; 
+            bottom: 0; 
+            background: linear-gradient(to right, #27ae60 0%, #27ae60 79.5%, #f39c12 79.5%, #f39c12 89.7%, #e74c3c 89.7%, #e74c3c 100%); 
+        }
+        
+        .vu-cover { 
+            position: absolute; 
+            right: 0; 
+            top: 0; 
+            bottom: 0; 
+            width: 100%; 
+            background: #111; 
+            transition: width 0.05s linear; 
+        }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar {
+            width: 10px; 
+            height: 10px; 
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1a1c; 
+            border-left: 1px solid #333; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #444; 
+            border-radius: 4px; 
+            border: 2px solid #1a1a1c; 
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00a8ff; 
+        }
     </style>
 </head>
 <body>
@@ -51,8 +323,8 @@
     </div>
 
     <div class="enc-tabs">
-        <button id="tab-btn-status" class="tab-btn active">&#128225; Estado y Logs</button>
-        <button id="tab-btn-config" class="tab-btn">&#9881; Configuracion</button>
+        <button id="tab-btn-status" class="tab-btn enc-tab active">&#128225; Estado y Logs</button>
+        <button id="tab-btn-config" class="tab-btn enc-tab">&#9881; Configuracion</button>
     </div>
 
     <div id="tab-status" class="enc-pane active">
@@ -67,13 +339,14 @@
             </div>
         </div>
 
-        <div class="enc-input-meter-container">
+        <div class="enc-input-meter-container" id="enc-input-meter">
             <div class="enc-input-meter-header">
                 <span class="enc-input-meter-title">Entrada al encoder</span>
                 <span class="enc-input-meter-values" id="enc-input-meter-values">Pico: -- dB | RMS: -- dB</span>
             </div>
             <div class="enc-input-meter-bar">
-                <span class="enc-input-meter-fill" id="enc-input-meter-fill"></span>
+                <div class="vu-gradient"></div>
+                <div class="vu-cover" id="enc-input-meter-cover"></div>
             </div>
         </div>
         

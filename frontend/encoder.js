@@ -1,4 +1,4 @@
-﻿const { ipcRenderer } = require('electron');
+const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -63,7 +63,7 @@ const throughputScaleEl = document.getElementById('enc-throughput-scale');
 const encoderHealthLineEl = document.getElementById('enc-health-line');
 const inputMeterEl = document.getElementById('enc-input-meter');
 const inputMeterValuesEl = document.getElementById('enc-input-meter-values');
-const inputMeterFillEl = document.getElementById('enc-input-meter-fill');
+const inputMeterCoverEl = document.getElementById('enc-input-meter-cover');
 const throughputCtx = throughputCanvas ? throughputCanvas.getContext('2d') : null;
 
 const typeSel = document.getElementById('enc-type');
@@ -125,7 +125,7 @@ function resetThroughputStats() {
 function resetInputMeter() {
     lastInputMeterAt = 0;
     if (inputMeterValuesEl) inputMeterValuesEl.textContent = 'Pico: -- dB | RMS: -- dB';
-    if (inputMeterFillEl) inputMeterFillEl.style.width = '0%';
+    if (inputMeterCoverEl) inputMeterCoverEl.style.width = '100%';
     if (inputMeterEl) inputMeterEl.classList.remove('warn');
 }
 
@@ -258,7 +258,10 @@ function updateInputMeter(report = {}) {
     const source = report.captureProvider || report.source || 'fuente';
     const silent = report.hasSignal === false && silentMs > 4000;
 
-    if (inputMeterFillEl) inputMeterFillEl.style.width = `${percent.toFixed(1)}%`;
+    if (inputMeterCoverEl) {
+        const coverWidth = 100 - percent;
+        inputMeterCoverEl.style.width = `${coverWidth.toFixed(1)}%`;
+    }
     if (inputMeterValuesEl) {
         const silentText = silent ? ` | silencio ${Math.round(silentMs / 1000)}s` : '';
         inputMeterValuesEl.textContent = `Pico: ${formatDb(peakDb)} | RMS: ${formatDb(rmsDb)} | ${source}${silentText}`;
