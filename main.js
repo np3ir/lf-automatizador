@@ -817,7 +817,7 @@ function broadcastVuLevels(levels = lastVuLevels) {
     scheduleVuBroadcast();
 }
 
-const VU_BROADCAST_MIN_INTERVAL_MS = 50;
+const VU_BROADCAST_MIN_INTERVAL_MS = 20;
 let lastVuBroadcastAt = 0;
 let pendingVuBroadcastTimer = null;
 

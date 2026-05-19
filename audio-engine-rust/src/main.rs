@@ -3457,9 +3457,9 @@ enum EngineEvent {
     PushTick,
 }
 
-/// Intervalo del bucle push de telemetría. 100 ms = 10 Hz. Suficiente para
-/// VU meters fluidos y posición de cabezal precisa, sin saturar IPC.
-const PUSH_TICK_MS: u64 = 100;
+/// Intervalo del bucle push de telemetría. 20 ms = 50 Hz. Suficiente para
+/// VU meters ultra fluidos a 50 FPS y posición de cabezal precisa, sin lag.
+const PUSH_TICK_MS: u64 = 20;
 
 fn main() {
     let mut state = EngineState::default();
