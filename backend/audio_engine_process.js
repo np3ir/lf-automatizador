@@ -7,6 +7,8 @@ function resolveRustAudioEnginePath(rootDir) {
     // Cross-Platform: en Windows el binario lleva .exe, en Linux no tiene extensión.
     const ext = process.platform === 'win32' ? '.exe' : '';
     const candidates = [
+        path.join(baseDir, 'bin', `lf-audio-engine${ext}`),
+        path.join(baseDir, 'bin', `lf-audio-engine-debug${ext}`),
         path.join(baseDir, 'audio-engine-rust', 'target', 'release', `lf-audio-engine${ext}`),
         path.join(baseDir, 'audio-engine-rust', 'target', 'debug', `lf-audio-engine${ext}`)
     ];

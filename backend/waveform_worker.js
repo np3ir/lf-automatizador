@@ -2,7 +2,13 @@ const { parentPort } = require('worker_threads');
 const cp = require('child_process');
 
 let ffmpegPath = 'ffmpeg';
-try { ffmpegPath = require('ffmpeg-static') || 'ffmpeg'; } catch (err) {}
+try { 
+    if (process.platform === 'win32') {
+        ffmpegPath = require('ffmpeg-static') || 'ffmpeg'; 
+    } else {
+        ffmpegPath = 'ffmpeg'; // Usar el nativo del sistema en Linux/Mac
+    }
+} catch (err) {}
 
 function buildPeaksFromPcm(buffer, sampleRate = 8000) {
     const sampleCount = Math.floor(buffer.length / 4);

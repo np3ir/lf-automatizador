@@ -1,0 +1,54 @@
+# =============================================================================
+# Exclusiones para el indexador de Antigravity (Google Gemini)
+# Evita que la IA se congele al intentar parsear carpetas gigantes
+# =============================================================================
+
+# Dependencias de Node.js (449 MB, 2577 archivos)
+node_modules/
+
+# Carpeta de respaldo completa (764 MB)
+000 Resplando (no tocar)/
+
+# Compilación de Rust (puede regenerarse con cargo build)
+audio-engine-rust/target/
+bin/
+
+# Caché de audio y datos temporales
+cache/
+Time/
+scratch/
+
+# Archivos de audio grandes (binarios, no código)
+*.mp3
+*.wav
+*.flac
+*.ogg
+*.aac
+
+# Logs y reportes que crecen en tiempo de ejecución
+ERROR_ANALYZER_LOG.txt
+track_cache.json
+config/audio_engine_report.jsonl
+config/renderer_runtime_errors.txt
+config/seek_debug.txt
+
+# Bases de datos SQLite (binarios)
+config/*.sqlite
+config/*.sqlite-*
+config/*.bak
+
+# Imágenes y multimedia
+*.jpg
+*.png
+*.ico
+
+# Archivos de sesión y estado temporal
+config/session_state.json
+config/lib_session.json
+config/cartwall_profiles.json
+
+# Prototipo (no es código activo)
+Prototipo/
+
+# Git internals
+.git/

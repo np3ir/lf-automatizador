@@ -312,7 +312,11 @@ module.exports = function(context) {
 
     function buildStreamUrl(config) {
         const safePassword = encodeURIComponent(String(config.password || ''));
-        const mountStr = config.serverType === 'icecast' ? normalizeMount(config.mount) : '/';
+        if (config.serverType === 'shoutcast') {
+            return `icecast://source:${safePassword}@${config.ip}:${config.port}/1`;
+        }
+        let mountStr = normalizeMount(config.mount);
+        if (mountStr === '/' || !mountStr) mountStr = '/stream';
         return `icecast://source:${safePassword}@${config.ip}:${config.port}${mountStr}`;
     }
 
@@ -442,7 +446,10 @@ module.exports = function(context) {
                     context.suppressNextFfmpegCloseSideEffects = 0;
                     return;
                 }
-                if (code && code !== 0 && context.encoderWindow) context.encoderWindow.webContents.send('encoder-error', `FFmpeg termino con codigo ${code}.`);
+                if (code && code !== 0 && context.encoderWindow) {
+                    const cleanErr = (ffmpegLastStderr || 'Error de conexion desconocido. Revisa la IP, puerto y clave.').replace(/\n/g, ' ').trim();
+                    context.encoderWindow.webContents.send('encoder-error', `FFmpeg termino con codigo ${code}: ${cleanErr}`);
+                }
                 setEncoderStatus('disconnected');
                 if (context.mainWindow) {
                     context.mainWindow.webContents.send('stop-audio-capture');

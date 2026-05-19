@@ -13,6 +13,25 @@ config/audio_engine_report.jsonl
 ERROR_ANALYZER_LOG.txt
 *.log
 track_cache.json
+bin/
+cache/
+
+# Archivos pesados de audio de prueba
+*.mp3
+*.wav
+*.flac
+*.ogg
+
+# Variables de entorno
+.env
+.env.local
+
+# Asegurar que los instaladores y scripts multiplataforma SÍ se suban
+!iniciar.sh
+!instalar_dependencias.sh
+!copiar.sh
+!Iniciar_Automatizador.bat
+!Instalar_Dependencias.bat
 
 # Local editor and OS noise
 .DS_Store

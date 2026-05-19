@@ -35,8 +35,11 @@ const defaultLibraryPrefs = {
 
 let workQueueTracks = []; 
 let filteredTracks = []; 
-let defaultPaths = { desktop: path.sep, downloads: path.sep, music: path.sep }; 
-let systemDrives = [process.platform === 'win32' ? 'C:\\' : '/']; 
+const __isLinux = process.platform === 'linux';
+let defaultPaths = __isLinux
+    ? { downloads: path.sep, music: path.sep, home: path.sep }
+    : { desktop: path.sep, downloads: path.sep, music: path.sep };
+let systemDrives = __isLinux ? [] : ['C:\\']; 
 
 let isAnalyzing = false; 
 let cancelRequested = false; 

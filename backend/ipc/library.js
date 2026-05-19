@@ -19,8 +19,62 @@ module.exports = function(context) {
     // Dynamic properties that might be reassigned
     
 
-ipcMain.handle('get-default-paths', () => { return { desktop: app.getPath('desktop'), downloads: app.getPath('downloads'), music: app.getPath('music') }; });
-ipcMain.handle('get-system-drives', async () => { return new Promise((resolve) => { if (process.platform === 'win32') { cp.exec('wmic logicaldisk get name', (err, stdout) => { if (err) resolve(['C:\\']); else resolve(stdout.split('\r\n').filter(line => /[A-Z]:/.test(line)).map(line => line.trim() + '\\')); }); } else resolve(['/']); }); });
+ipcMain.handle('get-default-paths', () => {
+    const isLinux = process.platform === 'linux';
+    const result = {
+        downloads: app.getPath('downloads'),
+        music: app.getPath('music')
+    };
+    // En Linux excluimos Escritorio — no se usa para guardar archivos de audio
+    if (!isLinux) {
+        result.desktop = app.getPath('desktop');
+    }
+    // En Linux agregamos Home como raíz de navegación
+    if (isLinux) {
+        result.home = app.getPath('home');
+    }
+    return result;
+});
+ipcMain.handle('get-system-drives', async () => {
+    if (process.platform === 'win32') {
+        return new Promise((resolve) => {
+            cp.exec('wmic logicaldisk get name', (err, stdout) => {
+                if (err) resolve(['C:\\']);
+                else resolve(stdout.split('\r\n').filter(line => /[A-Z]:/.test(line)).map(line => line.trim() + '\\'));
+            });
+        });
+    }
+    // Linux: devolver puntos de montaje reales (USB, discos externos)
+    const mounts = [];
+    try {
+        const os = require('os');
+        const mediaUser = path.join('/media', os.userInfo().username);
+        if (fs.existsSync(mediaUser)) {
+            fs.readdirSync(mediaUser).forEach(entry => {
+                const mountPath = path.join(mediaUser, entry);
+                try {
+                    if (fs.statSync(mountPath).isDirectory()) {
+                        mounts.push(mountPath);
+                    }
+                } catch (e) {}
+            });
+        }
+    } catch (e) {}
+    // También revisar /mnt/ por si hay montajes manuales
+    try {
+        if (fs.existsSync('/mnt')) {
+            fs.readdirSync('/mnt').forEach(entry => {
+                const mountPath = path.join('/mnt', entry);
+                try {
+                    if (fs.statSync(mountPath).isDirectory()) {
+                        mounts.push(mountPath);
+                    }
+                } catch (e) {}
+            });
+        }
+    } catch (e) {}
+    return mounts;
+});
 ipcMain.handle('lib-read-dir', async (e, dirPath, recursive = false) => readLibraryDirInWorker(dirPath, recursive === true));
 
 ipcMain.handle('lib-get-full-db', (e, options = {}) => {

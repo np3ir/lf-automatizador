@@ -310,6 +310,16 @@ let fxPrefs = loadConfig(fxPrefsPath, { preamp: 0, pan: 0, mono: false, eq_bands
 let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, { modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, timeFolder: '', duckingFade: 1.0, duckingVolume: 20, outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default', monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', encoderSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default', playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'webAudio', rustPlaylistOwnerEnabled: false, chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false, num_mus_fadein: 0, num_mus_fadeout: 0, num_mus_mix: 0, num_mus_mix_db: -14, eventsMasterActive: true, eventsManualOnly: false }));
 let clockwheelPrefs = loadConfig(clockwheelPrefsPath, { pattern: '', targetMinutes: 60, sepArtist: 4, sepTitle: 8, sepFolder: 2, clearList: false });
 
+// Adaptar rutas de configuración al SO actual (Linux: traduce rutas Windows automáticamente)
+const { adaptStoredPath } = require('../backend/utils/platform');
+const __projectRoot = path.resolve(__dirname, '..');
+if (generalPrefs.timeFolder) {
+    generalPrefs.timeFolder = adaptStoredPath(generalPrefs.timeFolder, __projectRoot);
+}
+if (generalPrefs.weatherFolder) {
+    generalPrefs.weatherFolder = adaptStoredPath(generalPrefs.weatherFolder, __projectRoot);
+}
+
 if (generalPrefs.duckingFade >= 10) generalPrefs.duckingFade = 1.0;
 
 let fileTypesData = [];
@@ -3849,11 +3859,18 @@ setInterval(() => {
 explorerContainer.addEventListener('click', () => { hideAllMenus(); clearSelection(); });
 
 async function loadDrives() {
+    const isLinux = process.platform === 'linux';
     let drives = [];
     try { drives = await ipcRenderer.invoke('get-system-drives'); } catch (e) { }
     try {
         const paths = await ipcRenderer.invoke('get-default-paths');
-        const shortcuts = [paths.desktop, paths.downloads, paths.music].filter(Boolean);
+        const shortcuts = [];
+        // Windows: Desktop + Downloads + Music
+        // Linux: Downloads + Music + Home (sin Desktop, no se usa)
+        if (!isLinux && paths.desktop) shortcuts.push(paths.desktop);
+        if (paths.downloads) shortcuts.push(paths.downloads);
+        if (paths.music) shortcuts.push(paths.music);
+        if (isLinux && paths.home) shortcuts.push(paths.home);
         renderTree([...shortcuts, ...drives], explorerContainer, true);
     } catch (e) {
         renderTree(drives, explorerContainer, true);
@@ -3908,11 +3925,31 @@ function renderTree(items, container, isRoot = false) {
         let isDir = false; try { isDir = fs.statSync(itemPath).isDirectory(); } catch (e) { return; }
 
         if (isRoot) {
+            const isLinux = process.platform === 'linux';
             const lowerPath = itemPath.toLowerCase();
-            if (lowerPath.includes('desktop') || name.toLowerCase() === 'escritorio') { name = 'Escritorio'; icon = '💻'; }
-            else if (lowerPath.includes('downloads') || name.toLowerCase() === 'descargas') { name = 'Descargas'; icon = '📥'; }
-            else if (lowerPath.includes('music') || name.toLowerCase() === 'música') { name = 'Música'; icon = '🎵'; }
-            else { name = `Disco Local (${itemPath.replace(/[\\/]/g, '')})`; icon = '💿'; }
+            const lowerName = name.toLowerCase();
+            // Escritorio: solo en Windows
+            if (!isLinux && (lowerPath.includes('desktop') || lowerName === 'escritorio')) {
+                name = 'Escritorio'; icon = '💻';
+            }
+            else if (lowerPath.includes('downloads') || lowerName === 'descargas') {
+                name = 'Descargas'; icon = '📥';
+            }
+            else if (lowerPath.includes('music') || lowerName === 'música' || lowerName === 'musica') {
+                name = 'Música'; icon = '🎵';
+            }
+            // Home de Linux
+            else if (isLinux && itemPath === os.homedir()) {
+                name = 'Inicio'; icon = '🏠';
+            }
+            // Discos USB/externos montados en /media/ o /mnt/
+            else if (isLinux && (itemPath.startsWith('/media/') || itemPath.startsWith('/mnt/'))) {
+                name = `Disco (${path.basename(itemPath)})`; icon = '💿';
+            }
+            // Unidades de disco Windows
+            else if (!isLinux) {
+                name = `Disco Local (${itemPath.replace(/[\\/]/g, '')})`; icon = '💿';
+            }
         }
 
         if (isDir) {

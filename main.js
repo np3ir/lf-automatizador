@@ -137,7 +137,13 @@ try { db.prepare("ALTER TABLE tracks ADD COLUMN file_size INTEGER").run(); } cat
 try { db.prepare("ALTER TABLE tracks ADD COLUMN file_mtime_ms INTEGER").run(); } catch(e) {}
 
 let ffmpegPath = 'ffmpeg';
-try { ffmpegPath = require('ffmpeg-static') || 'ffmpeg'; } catch (e) {}
+try { 
+    if (process.platform === 'win32') {
+        ffmpegPath = require('ffmpeg-static') || 'ffmpeg'; 
+    } else {
+        ffmpegPath = 'ffmpeg'; // Usar el nativo del sistema en Linux/Mac
+    }
+} catch (e) {}
 const rustAudioEngine = new RustAudioEngineProbe({
     rootDir: __dirname,
     cp,

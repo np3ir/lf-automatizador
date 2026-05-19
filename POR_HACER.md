@@ -260,28 +260,76 @@ Trabajos ejecutados sin interrupción durante la madrugada con la regla operativ
 - [ ] **FX como parte formal del motor:** Implementación REAL del Master FX en Rust (no documentación). Hoy `state.fx` en main.rs sólo almacena parámetros — el DSP corre todavía en WebAudio del renderer y por eso en modo `rustAudio` el "boost de efectos" es un placebo audible. Detalle exhaustivo en la sección 🚨 0 al inicio de este archivo.
 - [x] Limpieza de BD de artistas y Cédula de Artista reparadas.
 
-## 🐧 7. Preparación para Compatibilidad con Linux (Cross-Platform)
+## 🐧 7. Implementación Multiplataforma (Windows + Linux)
 
-Esta sección define la hoja de ruta para lograr que el Automatizador funcione en Linux, **sin abandonar Windows**. Ambos ecosistemas convivirán pacíficamente en este mismo proyecto. El objetivo es lograr "Cero Dependencias" en Linux (instalar y ejecutar, igual que en Windows).
+Esta sección es la **guía maestra** de la migración multiplataforma. Se actualiza con cada avance para no perder el hilo.
 
-> **Regla de Oro: Código Base Único (Convivencia Windows/Linux).** 
-> ⚠️ **ATENCIÓN PARA DESARROLLADORES E IAs:** NO se debe eliminar ni destruir el código existente de Windows. La lógica de Windows y Linux debe convivir en los mismos archivos. 
-> NO se crearán carpetas separadas. Se usará exactamente el mismo código base para ambos sistemas. Cuando un proceso sea diferente según el sistema operativo (ej. invocar un motor `.exe` vs un binario de Linux), se debe utilizar un condicional (`if (process.platform === 'win32') { ... } else if (process.platform === 'linux') { ... }`). La compatibilidad con Linux se **suma** al código actual de Windows, no lo reemplaza.
+> **Regla de Oro: Código Base Único (Convivencia Windows/Linux).**
+> ⚠️ **ATENCIÓN PARA DESARROLLADORES E IAs:** NO se debe eliminar ni destruir el código existente de Windows. La lógica de Windows y Linux debe convivir en los mismos archivos.
+> NO se crearán carpetas separadas. Se usará exactamente el mismo código base para ambos sistemas. Cuando un proceso sea diferente según el sistema operativo, se debe utilizar un condicional (`if (process.platform === 'win32') { ... } else if (process.platform === 'linux') { ... }`). La compatibilidad con Linux se **suma** al código actual de Windows, no lo reemplaza.
 
-### 🟢 Nivel 1: Cambios Seguros (Hacer ahora desde Windows)
-- [x] **Estandarizar Rutas de Archivos:** Corregido. Se eliminaron barras invertidas hardcodeadas (`\\`) en `render.js` (explorador de archivos), `libreria.js` (defaults de drives y labels) y `audio_engine_process.js` (resolución multiplataforma del binario Rust con `.exe` para Windows y sin extensión para Linux). Ahora se usa `path.join()`, `path.sep` y `process.platform` donde es necesario.
-- [x] **Rutas de Datos de Usuario:** Auditado. Todas las rutas de BD y configuración ya usan `path.join(__dirname, 'config')` (relativas al ejecutable), lo cual es portable por naturaleza entre Windows y Linux. No se encontraron referencias absolutas a discos. Se eliminó `frontend/restore.js` (script temporal de depuración con rutas absolutas hardcodeadas que no formaba parte del programa).
-- [x] **Scripts de Arranque:** Creado `iniciar.sh` para Linux con verificación de dependencias y ruta relativa automática. También se corrigió `Iniciar_Automatizador.bat` reemplazando la ruta absoluta `C:\LF Automatizador v1.0` por `%~dp0` (directorio del .bat), haciéndolo portable.
+### 📋 Decisiones Confirmadas
+| Decisión | Resolución |
+|---|---|
+| **Motor de audio en Linux** | Solo motor Rust — Web Audio API NO existirá en Linux |
+| **Distribuciones target** | Basadas en Debian: **Linux Mint**, Ubuntu, Debian. También Flatpak |
+| **Compilación Rust** | Directa en máquina Linux (VM VirtualBox con Linux Mint) |
+| **node_modules** | Separados por plataforma (Windows y Linux tienen sus propios node_modules) |
+| **Entorno de desarrollo** | Carpeta compartida VirtualBox entre Windows y Linux |
+| **Explorador de archivos Linux** | Sin Escritorio — solo Descargas, Música, Inicio. Discos USB si hay montados |
 
-### 🟡 Nivel 2: Cuidado con el Sistema Operativo (Case Sensitivity)
-- [x] **Auditoría de Mayúsculas/Minúsculas:** Implementado. Se creó `backend/path_case_audit.js` (módulo de auditoría) y se conectó via IPC en `backend/ipc/ui.js` como `db-maintenance-path-audit`. Funciona en dos modos: **diagnóstico** (por defecto, solo reporta sin tocar nada) y **reparación** (con `autoFix: true`, corrige los registros en la BD para que coincidan con el casing real del disco). En Windows no modifica nada porque el SO ya ignora mayúsculas; en Linux corrige rutas tipo `Bachata.mp3` → `bachata.mp3` automáticamente. Actualiza `tracks`, `track_artist_links` y `track_genre_links` en una transacción atómica.
-
-### 🔴 Nivel 3: El Motor y Empaquetado (Hacer cuando el motor Rust esté listo)
-- [ ] **Eliminación Total de Web Audio API:** Confirmar que el motor JavaScript haya sido erradicado antes de intentar compilar para Linux, evitando arrastrar código híbrido.
-- [ ] **Rust + ALSA/PulseAudio/PipeWire (validación en Linux):** El motor Rust usa `cpal` como backend de audio. En Windows usa WASAPI; en Linux `cpal` puede usar ALSA, PulseAudio o PipeWire dependiendo de las features habilitadas en `Cargo.toml`. Pendiente: (a) verificar que `cpal` enumera correctamente los dispositivos de audio en una máquina Linux real; (b) confirmar que la apertura de streams stereo a 44 100/48 000 Hz funciona bajo ALSA y bajo PulseAudio; (c) validar que el ring buffer del monitor y el tap del encoder no producen glitches bajo la latencia de ALSA (ALSA puede requerir un tamaño de buffer mayor que WASAPI). El binario `.exe` de Windows no sirve en Linux — requiere compilación nativa o cruzada.
-- [ ] **Compilación Cruzada de Rust para Linux:** Configurar Cargo/`cross` para generar binario nativo `x86_64-unknown-linux-gnu`. Agregar el target con `rustup target add x86_64-unknown-linux-gnu`. Verificar que las dependencias de audio (`cpal` con feature `alsa`) resuelvan sin `pkg-config` faltante. Alternativa: compilar directamente en una VM Linux con `cargo build --release`.
-- [ ] **Permisos de Ejecución (FFmpeg y Rust):** Garantizar que al empaquetar para Linux, los binarios de FFmpeg nativo y el motor de Rust adquieran permisos de ejecución (`chmod +x`), de lo contrario el SO los bloqueará.
-- [ ] **Exportación Cero Dependencias:** Configurar `electron-builder` en el `package.json` para generar los instaladores `.deb` (Debian/Ubuntu/Mint) y `.AppImage` (Portable Universal), los cuales llevarán incrustados Node, el navegador, FFmpeg y el Motor de Audio sin requerir instalaciones externas.
+### 📝 Nota Técnica: Backends de Audio en Linux
+> El motor Rust usa `cpal` como abstracción de audio. En Linux existen **3 backends principales**:
+> - **ALSA** (Advanced Linux Sound Architecture): Capa de bajo nivel, siempre presente. Es lo que `cpal` usa por defecto.
+> - **PulseAudio**: Servidor de audio de nivel medio. Fue el estándar durante años en Ubuntu/Mint. Corre encima de ALSA.
+> - **PipeWire**: El **reemplazo moderno** de PulseAudio (y de JACK). Linux Mint 22+ y Ubuntu 24+ lo incluyen por defecto. Es compatible hacia atrás con ALSA y PulseAudio, así que aplicaciones que usen ALSA (como `cpal`) funcionan automáticamente a través de PipeWire.
+>
+> **Conclusión práctica:** Al compilar con `cpal` usando ALSA (comportamiento por defecto), el audio funcionará en las 3 configuraciones porque PipeWire y PulseAudio son transparentes para aplicaciones ALSA. No necesitamos features adicionales en `Cargo.toml` por ahora.
 
 ---
-*Nota: Este archivo se irá actualizando a medida que deleguemos la arquitectura de "render.js masivo" al concepto de "Divide y Vencerás". El objetivo principal para esta fase es transformar a Electron en un control remoto puro.*
+
+### ✅ Fase Histórica: Cambios Seguros Ya Completados
+- [x] **Estandarizar Rutas de Archivos:** Se eliminaron barras invertidas hardcodeadas. Ahora se usa `path.join()`, `path.sep` y `process.platform` donde es necesario.
+- [x] **Rutas de Datos de Usuario:** Todas usan `path.join(__dirname, 'config')` — portables entre Windows y Linux.
+- [x] **Scripts de Arranque base:** Creado `iniciar.sh` para Linux y corregido `Iniciar_Automatizador.bat` con `%~dp0`.
+- [x] **Auditoría Case Sensitivity:** `backend/path_case_audit.js` con modo diagnóstico y reparación automática.
+- [x] **Motor Rust cross-platform base:** `audio_engine_process.js` ya resuelve `.exe` vs sin extensión. `main.rs` ya tiene `#[cfg(windows)]`/`#[cfg(not(windows))]`.
+- [x] **Explorador de unidades:** `library.js` → `get-system-drives` ya retorna `['/']` en Linux.
+
+### ✅ Fase 1: Asistentes de Instalación (Windows y Linux)
+- [x] **`instalar_dependencias.sh` (Linux)** — Setup inicial interactivo. Verifica e instala dependencias (`apt`), Node.js, Rust, ejecuta `npm install`, compila motor Rust, y **limpia la basura al final** (`npm cache clean`, `cargo clean`, `apt autoremove`).
+- [x] **`Instalar_Dependencias.bat` (Windows)** — Setup equivalente para PCs nuevos con Windows. Verifica dependencias, compila y **limpia la basura al final** para ahorrar GB de disco.
+- [x] **`iniciar.sh` (Linux)** y **`Iniciar_Automatizador.bat` (Windows)** — Launchers ligeros y rápidos para el uso del día a día (accesos directos).
+
+### ✅ Fase 2: Explorador de Archivos Inteligente por Plataforma
+- [x] **`backend/ipc/library.js`** — Modificar `get-default-paths`: excluir `desktop` en Linux, agregar `home`
+- [x] **`backend/ipc/library.js`** — Modificar `get-system-drives`: en Linux detectar discos USB montados en `/media/$USER/`
+- [x] **`frontend/render.js`** — Modificar `loadDrives()`: en Linux no mostrar Escritorio, agregar 🏠 Inicio
+- [x] **`frontend/render.js`** — Modificar `renderTree()`: iconos inteligentes por plataforma (🏠 para Home, 💿 para USB montados)
+- [x] **`frontend/libreria.js`** — Adaptar defaults de `defaultPaths` y `systemDrives` según plataforma
+
+### ✅ Fase 3: Compatibilidad de Rutas y Configuraciones
+- [x] **Crear `backend/utils/platform.js`** — Módulo centralizado: `isWindows`, `isLinux`, `adaptStoredPath()`, `safeSpawnOptions()`
+- [x] **Adaptar lectura de `timeFolder`** — Usar `adaptStoredPath()` para traducir rutas Windows absolutas a rutas relativas en Linux
+- [x] **Verificar `ffmpeg-static`** — Ya tiene fallback a `ffmpeg` del sistema en los 3 archivos que lo usan (`main.js`, `audio_analysis_worker.js`, `waveform_worker.js`)
+
+### 🔴 Fase 4: Motor de Audio Rust en Linux (en la VM)
+- [ ] Configurar VirtualBox con carpeta compartida `C:\LF Automatizador v1.0` ↔ `/media/sf_lf-automatizador/`
+- [ ] Instalar dependencias del sistema en Linux Mint (`libasound2-dev`, `pkg-config`, `curl`)
+- [ ] Instalar Rust en la VM (`rustup`)
+- [ ] Compilar `lf-audio-engine` con `cargo build --release` en Linux
+- [ ] Copiar binario a `bin/lf-audio-engine` (sin extensión)
+- [ ] Verificar enumeración de dispositivos ALSA/PipeWire desde el motor
+- [ ] Verificar apertura de streams stereo 44100/48000 Hz
+- [ ] Validar ring buffer monitor y encoder tap sin glitches
+- [ ] Test de nombres de dispositivos (diferencias Windows vs Linux)
+
+### 🔴 Fase 5: Empaquetado y Distribución
+- [ ] Permisos de ejecución (`chmod +x`) para binarios FFmpeg y motor Rust
+- [ ] Configurar `electron-builder` para generar `.deb` (Debian/Ubuntu/Mint) y `.AppImage` (portable)
+- [ ] Test de instalación limpia en Linux Mint fresco (sin dependencias previas)
+- [ ] Documentar proceso de compilación en README.md
+- [ ] Verificar compatibilidad Flatpak (bonus)
+
+---
+*Nota: Este archivo se actualiza con cada avance. Las fases se ejecutan en orden pero algunas tareas pueden hacerse en paralelo. El objetivo es que NINGÚN cambio rompa el funcionamiento existente en Windows.*

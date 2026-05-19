@@ -6,7 +6,13 @@ const path = require('path');
 const db = require('../database');
 
 let ffmpegPath = 'ffmpeg';
-try { ffmpegPath = require('ffmpeg-static') || 'ffmpeg'; } catch (err) {}
+try { 
+    if (process.platform === 'win32') {
+        ffmpegPath = require('ffmpeg-static') || 'ffmpeg'; 
+    } else {
+        ffmpegPath = 'ffmpeg'; // Usar el nativo del sistema en Linux/Mac
+    }
+} catch (err) {}
 
 function resolveRustAudioEnginePath() {
     const rootDir = path.resolve(__dirname, '..');

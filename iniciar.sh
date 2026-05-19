@@ -1,24 +1,52 @@
 #!/bin/bash
-# ============================================================
-# LF Automatizador v1.0 — Script de arranque para Linux
-# Equivalente a Iniciar_Automatizador.bat de Windows.
-# ============================================================
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║              LF Automatizador — Iniciar (Linux)                     ║
+# ║                                                                      ║
+# ║  Acceso directo para ejecutar el programa.                           ║
+# ║  Si es la primera vez, ejecuta antes: ./instalar_dependencias.sh     ║
+# ╚══════════════════════════════════════════════════════════════════════╝
 
-# Moverse al directorio donde vive este script (raíz del proyecto)
-cd "$(dirname "$0")"
+# Ir al directorio del proyecto (donde está este script)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# Verificar que node_modules exista
+# Advertencia si se detecta carpeta compartida de VirtualBox
+if df -T "$SCRIPT_DIR" 2>/dev/null | grep -q "vboxsf" || [[ "$SCRIPT_DIR" == *"/media/sf_"* ]] || [[ "$SCRIPT_DIR" == *"/mnt/sf_"* ]]; then
+    echo ""
+    echo -e "\033[1;33m╔══════════════════════════════════════════════════════════════════════╗\033[0m"
+    echo -e "\033[1;33m║  ⚠️  ADVERTENCIA: Carpeta compartida de VirtualBox detectada         ║\033[0m"
+    echo -e "\033[1;33m╠══════════════════════════════════════════════════════════════════════╣\033[0m"
+    echo -e "\033[1;33m║  Se ha detectado que está usando una máquina virtual con carpeta     ║\033[0m"
+    echo -e "\033[1;33m║  compartida. Las dependencias se instalarán, pero NO se garantiza   ║\033[0m"
+    echo -e "\033[1;33m║  el funcionamiento correcto del software en este entorno.            ║\033[0m"
+    echo -e "\033[1;33m║                                                                      ║\033[0m"
+    echo -e "\033[1;33m║  Para un funcionamiento óptimo, copie el proyecto directamente       ║\033[0m"
+    echo -e "\033[1;33m║  al disco local de su máquina virtual Linux.                         ║\033[0m"
+    echo -e "\033[1;33m╚══════════════════════════════════════════════════════════════════════╝\033[0m"
+    echo ""
+fi
+
+# Cargar entorno de Rust si existe (por si se instaló con rustup)
+[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+
+# Verificación rápida de lo mínimo necesario
+if ! command -v node &> /dev/null; then
+    echo "❌ Node.js no está instalado."
+    echo "   Ejecuta primero: ./instalar_dependencias.sh"
+    exit 1
+fi
+
 if [ ! -d "node_modules" ]; then
-    echo "[ERROR] No se encontró node_modules/. Ejecuta 'npm install' primero."
+    echo "❌ node_modules no encontrado."
+    echo "   Ejecuta primero: ./instalar_dependencias.sh"
     exit 1
 fi
 
-# Verificar que Electron esté instalado
-ELECTRON_BIN="node_modules/.bin/electron"
-if [ ! -f "$ELECTRON_BIN" ]; then
-    echo "[ERROR] Electron no está instalado. Ejecuta 'npm install' primero."
-    exit 1
+# Arrancar Electron
+echo "🚀 Iniciando LF Automatizador..."
+if [ "$EUID" -eq 0 ] || [ "$(id -u)" -eq 0 ]; then
+    echo "⚠️  Ejecutando como root — añadiendo --no-sandbox para Chromium."
+    npx electron . --no-sandbox "$@"
+else
+    npx electron . "$@"
 fi
-
-echo "Iniciando LF Automatizador..."
-"$ELECTRON_BIN" . &
