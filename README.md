@@ -68,7 +68,14 @@ Tras una estricta auditoría de seguridad y limpieza, el ecosistema utiliza excl
 
 Para inicializar la estación de trabajo y ejecutar el automatizador, ahora contamos con instaladores totalmente automatizados que se encargan de compilar módulos nativos (SQLite) y el motor de audio en Rust de forma transparente.
 
-1. **Requisitos Previos:**
+1. **Clonar el Repositorio (Línea de Comandos):**
+   Abre tu terminal y descarga el código del proyecto ejecutando:
+   ```bash
+   git clone https://github.com/yosoyluisfernando/lf-automatizador.git
+   cd lf-automatizador
+   ```
+
+2. **Requisitos Previos:**
    - [Node.js](https://nodejs.org/) (v18 LTS o superior).
    - Rust y Cargo (se recomienda descargar la última versión).
    - En Windows: Visual Studio Build Tools y Python.
