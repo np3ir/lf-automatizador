@@ -1307,8 +1307,10 @@ const rustPlaylistVirtualClock = {
     seekedAt: 0
 };
 const RUST_SEEK_BLACKOUT_MS = 600;
+const RUST_PLAYLIST_DECK_IDS = ['player-a', 'player-b', 'player-c'];
 const rustMonitorMirrorState = new Map();
 let currentPlaybackStartCause = 'idle';
+let rustPlaylistDeckCursor = 0;
 
 function getActivePlaybackFilePath() {
     const metaPath = getPlayerPlaybackMeta(activePlayer)?.filePath;
@@ -1482,6 +1484,24 @@ function setRustPlaylistMirrorGain(playerId, gain, extra = {}) {
     });
 }
 
+function reserveRustPlaylistDeckId() {
+    const now = Date.now();
+    for (let offset = 0; offset < RUST_PLAYLIST_DECK_IDS.length; offset++) {
+        const idx = (rustPlaylistDeckCursor + offset) % RUST_PLAYLIST_DECK_IDS.length;
+        const playerId = RUST_PLAYLIST_DECK_IDS[idx];
+        const state = rustPlaylistMirrorState.get(playerId);
+        const tailUntil = Number(state?.tailUntil) || 0;
+        const busy = state && state.status !== 'stopped' && tailUntil > now;
+        if (!busy) {
+            rustPlaylistDeckCursor = (idx + 1) % RUST_PLAYLIST_DECK_IDS.length;
+            return playerId;
+        }
+    }
+    const fallback = RUST_PLAYLIST_DECK_IDS[rustPlaylistDeckCursor % RUST_PLAYLIST_DECK_IDS.length];
+    rustPlaylistDeckCursor = (rustPlaylistDeckCursor + 1) % RUST_PLAYLIST_DECK_IDS.length;
+    return fallback;
+}
+
 function scheduleRustPlaylistGainRamp(playerId, fromGain, toGain, seconds, { stopAfter = false } = {}) {
     if (!playerId) return;
     const startGain = Math.max(0, Math.min(2, Number(fromGain) || 0));
@@ -1494,7 +1514,9 @@ function scheduleRustPlaylistGainRamp(playerId, fromGain, toGain, seconds, { sto
         durationMs,
         stopAfter
     }).catch(() => { });
-    setRustPlaylistMirrorGain(playerId, endGain);
+    setRustPlaylistMirrorGain(playerId, endGain, {
+        tailUntil: stopAfter ? Date.now() + durationMs + 250 : 0
+    });
 }
 
 function scheduleRustPlaylistStop(playerId, delaySeconds = 0) {
@@ -1509,6 +1531,7 @@ function scheduleRustPlaylistStop(playerId, delaySeconds = 0) {
         durationMs: delayMs,
         stopAfter: true
     }).catch(() => { });
+    setRustPlaylistMirrorGain(playerId, currentGain, { tailUntil: Date.now() + delayMs + 250 });
 }
 
 function findRustStatusPlayer(status = null, playerId = '') {
@@ -1721,7 +1744,7 @@ function sendRustOwnerStopAll({ fadeSeconds = 0 } = {}) {
     rustPlaylistStopGuardUntil = Date.now() + Math.max(1200, Math.round((safeFadeSeconds * 1000) + 1200));
     clearRustPlaylistGainRamps();
     stopRustVirtualPlayback();
-    ['player-a', 'player-b', 'player-a-aux', 'player-b-aux'].forEach(player => {
+    RUST_PLAYLIST_DECK_IDS.forEach(player => {
         const previous = rustPlaylistMirrorState.get(player) || {};
         const currentGain = Number.isFinite(Number(previous.gain)) ? Number(previous.gain) : 1;
         if (safeFadeSeconds > 0) {
@@ -1816,6 +1839,7 @@ function syncRustPlaylistControlPlane({ force = false, syncPosition = force } = 
 
     for (const [playerId, state] of rustPlaylistMirrorState.entries()) {
         if (!liveIds.has(playerId)) {
+            if ((Number(state?.tailUntil) || 0) > Date.now()) continue;
             const primaryPlayerId = getRustPrimaryPlayerId(playerId);
             if (primaryPlayerId !== playerId
                 && liveIds.has(primaryPlayerId)
@@ -6634,10 +6658,15 @@ function describePlayerState(id, player, role) {
     };
 }
 
-function getPlaylistPlayerId(player) {
+function getDomPlaylistPlayerId(player) {
     if (player === playerA) return 'player-a';
     if (player === playerB) return 'player-b';
     return '';
+}
+
+function getPlaylistPlayerId(player) {
+    const meta = getPlayerPlaybackMeta(player) || {};
+    return meta.rustPlayerId || getDomPlaylistPlayerId(player);
 }
 
 function getPlaybackMetaTitle(meta) {
@@ -6648,13 +6677,14 @@ function getPlaybackMetaTitle(meta) {
 
 function describeMixPlayer(id, player, gainNode) {
     const meta = getPlayerPlaybackMeta(player) || {};
+    const playerId = getPlaylistPlayerId(player) || id;
     const gainValue = Number(gainNode?.gain?.value);
     const currentTime = getPlayerClockTime(player);
     const duration = getPlayerClockDuration(player);
     const virtualActive = isRustVirtualPlayer(player);
     const playlistIndex = meta.row ? getPlaylistIndexFromRow(meta.row) : 0;
     return {
-        id,
+        id: playerId,
         active: virtualActive ? !rustPlaylistVirtualClock.paused : !!(player && !player.paused && !player.ended),
         loaded: virtualActive ? !!rustPlaylistVirtualClock.path : !!(player && player.src),
         currentTime: Number(currentTime.toFixed(3)),
@@ -8736,6 +8766,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
         activeGain = (activeGain === gainA) ? gainB : gainA;
         cancelPendingPlayerStop(fadingPlayer);
         cancelPendingPlayerStop(activePlayer);
+        const currentRustPlayerId = isRustPlaylistOwnerEnabled() ? reserveRustPlaylistDeckId() : '';
         assignPlayerToPlaylistBus(activePlayer, getPlaylistIndexFromRow(tr));
         assignPlayerToPlaylistBus(fadingPlayer, getPlaylistIndexFromRow(previousPlayingRow || tr));
         clearPlayerPlaybackMeta(activePlayer);
@@ -8818,7 +8849,8 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
                 mixAbsolute: null,
                 playbackEndAbsolute: null,
                 naturalEndAbsolute: null,
-                startOffset: 0
+                startOffset: 0,
+                rustPlayerId: currentRustPlayerId || ''
             });
 
             // Fade-out de la canción saliente al disparar la locución horaria.
@@ -9047,7 +9079,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
         ipcRenderer.send('update-metadata', nombreMostrar);
         publishRustNowPlaying(nombreMostrar, {
             path: rutaFisica,
-            player: activePlayer === playerB ? 'player-b' : 'player-a',
+            player: currentRustPlayerId || getDomPlaylistPlayerId(activePlayer),
             source: 'playRow'
         });
         const endTime = new Date(trackStartTime.getTime() + currentDuration * 1000); document.getElementById('txt-acaba').innerText = endTime.toLocaleTimeString('es-PE', { hour12: false });
@@ -9066,7 +9098,8 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
             mixAbsolute: playbackWindow.mixAbsolute,
             playbackEndAbsolute: playbackWindow.effectiveEndAbsolute,
             naturalEndAbsolute: playbackWindow.naturalEndAbsolute,
-            startOffset: currentStartTimeOffset
+            startOffset: currentStartTimeOffset,
+            rustPlayerId: currentRustPlayerId || ''
         });
 
         if (fadingPlayer && !isPlayerClockPaused(fadingPlayer)) {
