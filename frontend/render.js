@@ -12,6 +12,7 @@ const { ipcRenderer, webUtils } = require('electron');
 const { normalizeAudioPrefs } = require('./audio_prefs');
 const { AudioEngineClient, RustAudioEngineAdapter } = require('./audio_engine_client');
 
+
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => {
     e.preventDefault();
