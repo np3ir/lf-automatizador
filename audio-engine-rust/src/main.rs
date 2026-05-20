@@ -27,6 +27,12 @@ struct PlayerState {
     repeat_active: bool,
     repeat_start_ms: u64,
     repeat_count: u64,
+    fade_active: bool,
+    fade_start_gain: f32,
+    fade_target_gain: f32,
+    fade_started_at_ms: u128,
+    fade_duration_ms: u64,
+    fade_stop_after: bool,
 }
 
 impl Default for PlayerState {
@@ -43,6 +49,12 @@ impl Default for PlayerState {
             repeat_active: false,
             repeat_start_ms: 0,
             repeat_count: 0,
+            fade_active: false,
+            fade_start_gain: 1.0,
+            fade_target_gain: 1.0,
+            fade_started_at_ms: 0,
+            fade_duration_ms: 0,
+            fade_stop_after: false,
         }
     }
 }
@@ -2848,6 +2860,46 @@ fn process_repeat_players(state: &mut EngineState) {
     }
 }
 
+fn process_player_fades(state: &mut EngineState) {
+    let now = now_ms();
+    let mut stop_after = Vec::new();
+    for (player_id, runtime) in state.players.iter_mut() {
+        if !runtime.state.fade_active {
+            continue;
+        }
+        let duration = runtime.state.fade_duration_ms.max(1) as f32;
+        let elapsed = now.saturating_sub(runtime.state.fade_started_at_ms) as f32;
+        let t = (elapsed / duration).clamp(0.0, 1.0);
+        let curved = t * t * (3.0 - 2.0 * t);
+        let gain = runtime.state.fade_start_gain
+            + ((runtime.state.fade_target_gain - runtime.state.fade_start_gain) * curved);
+        runtime.state.gain = gain.clamp(0.0, 2.0);
+        if let Some(player) = &runtime.player {
+            player.set_volume(runtime.state.gain);
+        }
+        if t >= 1.0 {
+            runtime.state.fade_active = false;
+            runtime.state.gain = runtime.state.fade_target_gain.clamp(0.0, 2.0);
+            if let Some(player) = &runtime.player {
+                player.set_volume(runtime.state.gain);
+            }
+            if runtime.state.fade_stop_after {
+                stop_after.push(player_id.clone());
+            }
+        }
+    }
+    for player_id in stop_after {
+        if let Some(runtime) = state.players.get_mut(&player_id) {
+            runtime.state.status = "stopped".to_string();
+            runtime.state.position_ms = 0;
+            runtime.meter.reset();
+            if let Some(player) = runtime.player.take() {
+                player.stop();
+            }
+        }
+    }
+}
+
 fn route_bus(state: &mut EngineState, bus_id: &str, output_id: &str) -> Result<(), String> {
     let (resolved_output_id, resolved_output_name) = ensure_output(state, output_id)?;
 
@@ -3979,6 +4031,7 @@ fn main() {
         let line = match event {
             EngineEvent::StdinLine(l) => l,
             EngineEvent::PushTick => {
+                process_player_fades(&mut state);
                 process_repeat_players(&mut state);
                 process_playlist_end_actions(&mut state);
                 // Push automático de status. request_id vacío → el campo no se
@@ -4347,6 +4400,7 @@ fn main() {
             "setGain" => {
                 let new_gain = {
                     let runtime = state.players.entry(player_id.clone()).or_default();
+                    runtime.state.fade_active = false;
                     runtime.state.gain = json_get_f32(&line, "gain")
                         .unwrap_or(runtime.state.gain)
                         .clamp(0.0, 2.0);
@@ -4359,6 +4413,46 @@ fn main() {
                     if let Some(player) = &runtime.player {
                         player.set_volume(new_gain.clamp(0.0, 2.0));
                     }
+                }
+            }
+            "fade" => {
+                let runtime = state.players.entry(player_id.clone()).or_default();
+                let from_gain = json_get_f32(&line, "fromGain")
+                    .unwrap_or(runtime.state.gain)
+                    .clamp(0.0, 2.0);
+                let target_gain = json_get_f32(&line, "toGain")
+                    .or_else(|| json_get_f32(&line, "gain"))
+                    .unwrap_or(runtime.state.gain)
+                    .clamp(0.0, 2.0);
+                let duration_ms = json_get_u64(&line, "durationMs")
+                    .or_else(|| json_get_f32(&line, "seconds").map(|s| (s.max(0.0) * 1000.0).round() as u64))
+                    .unwrap_or(0);
+                let stop_after = json_get_bool(&line, "stopAfter").unwrap_or(false);
+                runtime.state.gain = from_gain;
+                if let Some(player) = &runtime.player {
+                    player.set_volume(from_gain);
+                }
+                if duration_ms <= 25 || (!stop_after && (from_gain - target_gain).abs() < 0.001) {
+                    runtime.state.fade_active = false;
+                    runtime.state.gain = target_gain;
+                    if let Some(player) = &runtime.player {
+                        player.set_volume(target_gain);
+                    }
+                    if stop_after {
+                        runtime.state.status = "stopped".to_string();
+                        runtime.state.position_ms = 0;
+                        runtime.meter.reset();
+                        if let Some(player) = runtime.player.take() {
+                            player.stop();
+                        }
+                    }
+                } else {
+                    runtime.state.fade_active = true;
+                    runtime.state.fade_start_gain = from_gain;
+                    runtime.state.fade_target_gain = target_gain;
+                    runtime.state.fade_started_at_ms = now_ms();
+                    runtime.state.fade_duration_ms = duration_ms;
+                    runtime.state.fade_stop_after = stop_after;
                 }
             }
             "getPeaks" => {

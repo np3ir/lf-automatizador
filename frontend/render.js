@@ -10,7 +10,7 @@ const os = require('os');
 const url = require('url');
 const { ipcRenderer, webUtils } = require('electron');
 const { normalizeAudioPrefs } = require('./audio_prefs');
-const { AudioEngineClient, WebAudioEngineAdapter, RustAudioEngineAdapter } = require('./audio_engine_client');
+const { AudioEngineClient, RustAudioEngineAdapter } = require('./audio_engine_client');
 
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => {
@@ -108,62 +108,57 @@ function saveConfig(filePath, data) {
     try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); } catch (e) { }
 }
 
-function nodeBufferToArrayBuffer(buffer) {
-    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-}
-
-function createDecodeAudioContext() {
-    const OfflineCtor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    if (OfflineCtor) {
-        try { return new OfflineCtor(1, 2, 44100); } catch (err) { }
-    }
-    const AudioCtor = window.AudioContext || window.webkitAudioContext;
-    if (AudioCtor) {
-        try { return new AudioCtor({ latencyHint: 'playback' }); } catch (err) { }
-    }
-    return null;
-}
-
-const waveformDecodeCtx = createDecodeAudioContext();
 let waveformRenderToken = 0;
 const waveformPeaksByPath = new Map();
 const audioDurationCache = new Map();
+let mainWaveformCacheDir = '';
+
+ipcRenderer.invoke('get-cache-dir')
+    .then(result => {
+        if (result?.success && result.cacheDir) mainWaveformCacheDir = result.cacheDir;
+    })
+    .catch(() => {});
 
 function parseFiniteCueValue(value) {
     const parsed = parseFloat(value);
     return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getAudioDuration(filePath) {
-    if (!filePath) return Promise.resolve(0);
-    if (audioDurationCache.has(filePath)) return Promise.resolve(audioDurationCache.get(filePath));
-    return new Promise(resolve => {
-        const probe = new Audio();
-        let settled = false;
-        const finish = (value) => {
-            if (settled) return;
-            settled = true;
-            probe.removeAttribute('src');
-            probe.load();
-            const duration = Number.isFinite(value) ? value : 0;
-            audioDurationCache.set(filePath, duration);
-            resolve(duration);
-        };
-        probe.preload = 'metadata';
-        probe.onloadedmetadata = () => finish(probe.duration || 0);
-        probe.onerror = () => finish(0);
-        probe.src = url.pathToFileURL(filePath).href;
+async function getRustAudioPeaks(filePath, bins = 4096) {
+    if (!filePath) return null;
+    const result = await ipcRenderer.invoke('audio-engine-rust-command', {
+        cmd: 'getPeaks',
+        path: filePath,
+        bins: Math.max(128, Math.min(60000, parseInt(bins, 10) || 4096)),
+        cacheDir: mainWaveformCacheDir
     });
+    const message = result?.message || result?.result?.message || result;
+    if (!result?.success || message?.type !== 'peaks') return null;
+    return {
+        min: Float32Array.from(message.min || []),
+        max: Float32Array.from(message.max || []),
+        bins: Number(message.bins) || (message.min || []).length,
+        duration: Math.max(0, (Number(message.durationMs) || 0) / 1000)
+    };
 }
 
-function getAudioMimeType(filePath) {
-    const ext = String(path.extname(filePath || '')).toLowerCase();
-    if (ext === '.mp3') return 'audio/mpeg';
-    if (ext === '.wav') return 'audio/wav';
-    if (ext === '.flac') return 'audio/flac';
-    if (ext === '.ogg') return 'audio/ogg';
-    if (ext === '.m4a' || ext === '.aac') return 'audio/mp4';
-    return 'application/octet-stream';
+async function getBackendAudioPeaks(filePath) {
+    const result = await ipcRenderer.invoke('audio-build-waveform-peaks', filePath);
+    return normalizeMainWaveformPeaks(result?.peaks);
+}
+
+async function getAudioDuration(filePath) {
+    if (!filePath) return Promise.resolve(0);
+    if (audioDurationCache.has(filePath)) return Promise.resolve(audioDurationCache.get(filePath));
+    try {
+        const peaks = await getRustAudioPeaks(filePath, 256) || await getBackendAudioPeaks(filePath);
+        const duration = Number.isFinite(peaks?.duration) ? peaks.duration : 0;
+        audioDurationCache.set(filePath, duration);
+        return duration;
+    } catch (err) {
+        audioDurationCache.set(filePath, 0);
+        return 0;
+    }
 }
 
 function getFilePlaybackDiagnostics(filePath) {
@@ -189,29 +184,6 @@ function getFilePlaybackDiagnostics(filePath) {
     } catch (err) {
         return { ok: false, reason: err.message };
     }
-}
-
-function buildMainWaveformPeaks(audioBuffer) {
-    const rawData = audioBuffer.getChannelData(0);
-    const targetBins = Math.max(2048, Math.min(60000, Math.ceil(audioBuffer.duration * 120)));
-    const samplesPerBin = Math.max(1, Math.ceil(rawData.length / targetBins));
-    const bins = Math.ceil(rawData.length / samplesPerBin);
-    const min = new Float32Array(bins);
-    const max = new Float32Array(bins);
-    for (let bin = 0; bin < bins; bin++) {
-        const start = bin * samplesPerBin;
-        const end = Math.min(rawData.length, start + samplesPerBin);
-        let binMin = 1;
-        let binMax = -1;
-        for (let i = start; i < end; i++) {
-            const datum = rawData[i];
-            if (datum < binMin) binMin = datum;
-            if (datum > binMax) binMax = datum;
-        }
-        min[bin] = binMin;
-        max[bin] = binMax;
-    }
-    return { min, max, bins, duration: audioBuffer.duration };
 }
 
 function normalizeMainWaveformPeaks(peaks) {
@@ -638,8 +610,11 @@ function syncRustPlaylistPlaybackContext() {
     }).catch(() => {});
 }
 
-function notifyRustPlaylistFinished() {
+function notifyRustPlaylistFinished(reason = 'finish') {
     if (!currentPlayingRow) return;
+    if (reason === 'mix') {
+        rustPlaylistAutoMixPendingUntil = Date.now() + 5000;
+    }
     commandRustControlPlane('playlistFinished', {
         currentRowId: ensurePlaylistRowId(currentPlayingRow),
         currentPlayer: getPlaylistPlayerId(activePlayer),
@@ -677,20 +652,26 @@ function handleRustPlaylistAction(message = {}) {
         return;
     }
     if (action === 'stop') {
+        rustPlaylistAutoMixPendingUntil = 0;
         stopAll();
         return;
     }
     const row = getRowById(rowId);
     if (!row) {
+        rustPlaylistAutoMixPendingUntil = 0;
         if (action === 'playRow' || action === 'resolveRandom') stopAll();
         return;
     }
     if (action === 'resolveRandom' && row.dataset.type === 'random') {
-        playRow(row, false, 0, { startCause: 'rust-playlist-random' });
+        const isAutoMix = Date.now() < rustPlaylistAutoMixPendingUntil;
+        rustPlaylistAutoMixPendingUntil = 0;
+        playRow(row, isAutoMix, 0, { startCause: isAutoMix ? 'rust-playlist-automix-random' : 'rust-playlist-random' });
         return;
     }
     if (action === 'playRow') {
-        playRow(row, false, 0, { startCause: 'rust-playlist' });
+        const isAutoMix = Date.now() < rustPlaylistAutoMixPendingUntil;
+        rustPlaylistAutoMixPendingUntil = 0;
+        playRow(row, isAutoMix, 0, { startCause: isAutoMix ? 'rust-playlist-automix' : 'rust-playlist' });
     }
 }
 
@@ -1326,7 +1307,6 @@ const rustPlaylistVirtualClock = {
     seekedAt: 0
 };
 const RUST_SEEK_BLACKOUT_MS = 600;
-const rustPlaylistGainRampTimers = new Map();
 const rustMonitorMirrorState = new Map();
 let currentPlaybackStartCause = 'idle';
 
@@ -1481,14 +1461,15 @@ function stopRustVirtualPlayback(player = null) {
 }
 
 function cancelRustPlaylistGainRamp(playerId = '') {
-    const timers = rustPlaylistGainRampTimers.get(playerId);
-    if (!Array.isArray(timers)) return;
-    timers.forEach(timer => clearTimeout(timer));
-    rustPlaylistGainRampTimers.delete(playerId);
+    const previous = rustPlaylistMirrorState.get(playerId) || {};
+    const gain = Number(previous.gain);
+    if (playerId && Number.isFinite(gain)) {
+        commandRustPlaylist('setGain', { player: playerId, gain }).catch(() => { });
+    }
 }
 
 function clearRustPlaylistGainRamps() {
-    Array.from(rustPlaylistGainRampTimers.keys()).forEach(cancelRustPlaylistGainRamp);
+    Array.from(rustPlaylistMirrorState.keys()).forEach(cancelRustPlaylistGainRamp);
 }
 
 function setRustPlaylistMirrorGain(playerId, gain, extra = {}) {
@@ -1503,57 +1484,31 @@ function setRustPlaylistMirrorGain(playerId, gain, extra = {}) {
 
 function scheduleRustPlaylistGainRamp(playerId, fromGain, toGain, seconds, { stopAfter = false } = {}) {
     if (!playerId) return;
-    cancelRustPlaylistGainRamp(playerId);
     const startGain = Math.max(0, Math.min(2, Number(fromGain) || 0));
     const endGain = Math.max(0, Math.min(2, Number(toGain) || 0));
     const durationMs = Math.max(0, Number(seconds) || 0) * 1000;
-    if (durationMs <= 25 || Math.abs(startGain - endGain) < 0.001) {
-        commandRustPlaylist('setGain', { player: playerId, gain: endGain }).catch(() => { });
-        setRustPlaylistMirrorGain(playerId, endGain);
-        if (stopAfter) {
-            commandRustPlaylist('stop', { player: playerId }).catch(() => { });
-            rustPlaylistMirrorState.delete(playerId);
-        }
-        return;
-    }
-
-    const steps = Math.max(4, Math.min(30, Math.round(durationMs / 60)));
-    const timers = [];
-    for (let step = 1; step <= steps; step++) {
-        const atMs = Math.round((durationMs * step) / steps);
-        const t = step / steps;
-        const curved = t * t * (3 - 2 * t);
-        const gain = startGain + ((endGain - startGain) * curved);
-        timers.push(setTimeout(() => {
-            commandRustPlaylist('setGain', { player: playerId, gain }).catch(() => { });
-            setRustPlaylistMirrorGain(playerId, gain);
-            if (step === steps) {
-                rustPlaylistGainRampTimers.delete(playerId);
-                if (stopAfter) {
-                    commandRustPlaylist('stop', { player: playerId }).catch(() => { });
-                    rustPlaylistMirrorState.delete(playerId);
-                }
-            }
-        }, atMs));
-    }
-    rustPlaylistGainRampTimers.set(playerId, timers);
+    commandRustPlaylist('fade', {
+        player: playerId,
+        fromGain: startGain,
+        toGain: endGain,
+        durationMs,
+        stopAfter
+    }).catch(() => { });
+    setRustPlaylistMirrorGain(playerId, endGain);
 }
 
 function scheduleRustPlaylistStop(playerId, delaySeconds = 0) {
     if (!playerId) return;
-    cancelRustPlaylistGainRamp(playerId);
     const delayMs = Math.max(0, Number(delaySeconds) || 0) * 1000;
-    if (delayMs <= 25) {
-        commandRustPlaylist('stop', { player: playerId }).catch(() => { });
-        rustPlaylistMirrorState.delete(playerId);
-        return;
-    }
-    const timer = setTimeout(() => {
-        rustPlaylistGainRampTimers.delete(playerId);
-        commandRustPlaylist('stop', { player: playerId }).catch(() => { });
-        rustPlaylistMirrorState.delete(playerId);
-    }, delayMs);
-    rustPlaylistGainRampTimers.set(playerId, [timer]);
+    const previous = rustPlaylistMirrorState.get(playerId) || {};
+    const currentGain = Number.isFinite(Number(previous.gain)) ? Number(previous.gain) : 1;
+    commandRustPlaylist('fade', {
+        player: playerId,
+        fromGain: currentGain,
+        toGain: currentGain,
+        durationMs: delayMs,
+        stopAfter: true
+    }).catch(() => { });
 }
 
 function findRustStatusPlayer(status = null, playerId = '') {
@@ -1865,7 +1820,6 @@ function syncRustPlaylistControlPlane({ force = false, syncPosition = force } = 
             if (primaryPlayerId !== playerId
                 && liveIds.has(primaryPlayerId)
                 && getRustPlaylistAuxPlayerId(primaryPlayerId, currentPlayingRow) === playerId) continue;
-            if (rustPlaylistGainRampTimers.has(playerId)) continue;
             commandRustPlaylist('stop', { player: playerId }).catch(() => { });
             rustPlaylistMirrorState.delete(playerId);
         } else if (!isRustPlaylistOwnerEnabled() && state.owner === true) {
@@ -2784,6 +2738,7 @@ const explorerContainer = document.getElementById('file-explorer');
 
 let currentPlayingRow = null;
 let queuedNextRow = null;
+let rustPlaylistAutoMixPendingUntil = 0;
 let currentDuration = 0;
 let trackStartTime = null;
 let eventPreHoldActive = false;
@@ -6986,18 +6941,15 @@ function buildWebAudioEngineDiagnostics() {
     };
 }
 
-const webAudioEngineAdapter = new WebAudioEngineAdapter({ getState: buildWebAudioEngineDiagnostics });
 const rustAudioEngineAdapter = new RustAudioEngineAdapter({
     ipcRenderer,
-    getState: buildWebAudioEngineDiagnostics,
-    fallbackAdapter: webAudioEngineAdapter
+    getState: buildWebAudioEngineDiagnostics
 });
 const audioEngineClient = new AudioEngineClient({
     mode: generalPrefs.audioEngineMode,
-    adapter: webAudioEngineAdapter,
-    fallbackAdapter: webAudioEngineAdapter
+    adapter: rustAudioEngineAdapter,
+    fallbackAdapter: rustAudioEngineAdapter
 });
-audioEngineClient.registerAdapter('rustAudio', rustAudioEngineAdapter);
 let lastRustRouteSyncSignature = '';
 let lastRustFxSyncSignature = '';
 let warnedRustMonitorRouteShared = false;
@@ -7957,7 +7909,7 @@ function handleTimeUpdate(player) {
         if (triggerAbsolute !== null) {
             if (absTime >= triggerAbsolute && !crossfadeTriggered && !generalPrefs.modeRepeatTrack && !stopAfterCurrent) {
                 crossfadeTriggered = true;
-                if (isRustPlaylistOwnerEnabled()) notifyRustPlaylistFinished();
+                if (isRustPlaylistOwnerEnabled()) notifyRustPlaylistFinished('mix');
                 else playNext(true);
             }
         } else {
@@ -7965,7 +7917,7 @@ function handleTimeUpdate(player) {
             const effectiveMixTrigger = currentTrackConfig.mixTrigger > 0 ? currentTrackConfig.mixTrigger : fallbackMixTrigger;
             if (effectiveMixTrigger > 0 && timeLeft <= effectiveMixTrigger && !crossfadeTriggered && !generalPrefs.modeRepeatTrack && !stopAfterCurrent && currentDuration > 0) {
                 crossfadeTriggered = true;
-                if (isRustPlaylistOwnerEnabled()) notifyRustPlaylistFinished();
+                if (isRustPlaylistOwnerEnabled()) notifyRustPlaylistFinished('mix');
                 else playNext(true);
             }
         }
@@ -8444,6 +8396,13 @@ function readRustStereoMetersByBus() {
     return byBus;
 }
 
+function smoothVuPeak(previous, target) {
+    const current = Math.max(0, Math.min(100, Number(target) || 0));
+    const last = Math.max(0, Math.min(100, Number(previous) || 0));
+    const factor = current >= last ? 0.45 : 0.18;
+    return last + ((current - last) * factor);
+}
+
 function mergeRustStereoLevels(levels = []) {
     let left = 0;
     let right = 0;
@@ -8509,6 +8468,40 @@ let lastVuAnimationFrameAt = 0;
 function animateVUMeters(scheduleNextFrame = true) {
     lastVuAnimationFrameAt = performance.now();
     const rustProgramStereo = readRustProgramStereoPercent();
+    const rustMeters = Array.isArray(rustAudioProbeStatus.lastStatus?.meters)
+        ? rustAudioProbeStatus.lastStatus.meters
+        : [];
+    const rustOnlyMeters = isRustExclusiveAudioMode() && rustProgramStereo;
+    if (rustOnlyMeters) {
+        lastLeftPeak = smoothVuPeak(lastLeftPeak, rustProgramStereo.left || 0);
+        lastRightPeak = smoothVuPeak(lastRightPeak, rustProgramStereo.right || 0);
+        const vul = document.getElementById('vu-l-cover');
+        const vur = document.getElementById('vu-r-cover');
+        if (vul) vul.style.width = `${100 - lastLeftPeak}%`;
+        if (vur) vur.style.width = `${100 - lastRightPeak}%`;
+        lastProgramPeakPercent = rustProgramStereo.max || Math.max(lastLeftPeak, lastRightPeak);
+
+        const now = performance.now();
+        if ((now - lastVuIpcSentAt) >= VU_IPC_INTERVAL_MS) {
+            lastVuIpcSentAt = now;
+            const includeDiagnostics = (now - lastVuDiagnosticsIpcSentAt) >= VU_DIAGNOSTICS_IPC_INTERVAL_MS;
+            if (includeDiagnostics) lastVuDiagnosticsIpcSentAt = now;
+            const vuPayload = {
+                pgm: lastProgramPeakPercent,
+                cue: 0,
+                monitor: 0,
+                jingle: 0,
+                cartwall: 0,
+                playlists: [0, 0, 0, 0],
+                rustMeters,
+                rustMetersUpdatedAt: rustMeters.length ? (rustAudioProbeStatus.lastStatus?.updatedAt || Date.now()) : 0
+            };
+            if (includeDiagnostics) vuPayload.diagnostics = audioEngineClient.getDiagnostics();
+            ipcRenderer.send('vu-levels', vuPayload);
+        }
+        if (scheduleNextFrame) requestAnimationFrame(animateVUMeters);
+        return;
+    }
     if (!rustProgramStereo && ((isPlayerClockPaused(activePlayer) && jingleElement.paused && (!fadingPlayer || isPlayerClockPaused(fadingPlayer))) || (activePlayer.ended && jingleElement.ended))) {
         lastLeftPeak = Math.max(0, lastLeftPeak - 2);
         lastRightPeak = Math.max(0, lastRightPeak - 2);
@@ -8543,9 +8536,6 @@ function animateVUMeters(scheduleNextFrame = true) {
         const includeDiagnostics = (now - lastVuDiagnosticsIpcSentAt) >= VU_DIAGNOSTICS_IPC_INTERVAL_MS;
         if (includeDiagnostics) lastVuDiagnosticsIpcSentAt = now;
         const playlistLevels = playlistStereo.map((peak, idx) => Math.max(ampToPercent(peak.max), rustPlaylistStereo[idx]?.max || 0));
-        const rustMeters = Array.isArray(rustAudioProbeStatus.lastStatus?.meters)
-            ? rustAudioProbeStatus.lastStatus.meters
-            : [];
         const vuPayload = {
             pgm: pgmPercent,
             cue: ampToPercent(cueStereo.max),
@@ -8619,16 +8609,14 @@ function drawMainMarkers(filePath, duration, startOffset) {
 async function drawWaveform(filePath) {
     const renderToken = ++waveformRenderToken;
     try {
-        if (!waveformDecodeCtx || !filePath) return;
+        if (!filePath) return;
         let peaks = waveformPeaksByPath.get(filePath);
         if (!peaks) {
-            const result = await ipcRenderer.invoke('audio-build-waveform-peaks', filePath);
-            peaks = normalizeMainWaveformPeaks(result?.peaks);
+            peaks = await getRustAudioPeaks(filePath, 12000);
             if (!peaks) {
-                const fileBuffer = await fs.promises.readFile(filePath);
-                const audioBuffer = await waveformDecodeCtx.decodeAudioData(nodeBufferToArrayBuffer(fileBuffer));
-                peaks = buildMainWaveformPeaks(audioBuffer);
+                peaks = await getBackendAudioPeaks(filePath);
             }
+            if (!peaks) throw new Error('No se pudieron construir los peaks de la onda.');
             waveformPeaksByPath.set(filePath, peaks);
             if (waveformPeaksByPath.size > 12) {
                 const oldestKey = waveformPeaksByPath.keys().next().value;

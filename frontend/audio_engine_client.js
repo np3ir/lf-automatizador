@@ -236,6 +236,7 @@ class RustAudioEngineAdapter {
                     cmd: 'playlistFinished',
                     currentRowId: payload.currentRowId || '',
                     currentPlayer: payload.currentPlayer || payload.player || '',
+                    queuedRowId: payload.queuedRowId || '',
                     pgmTab: payload.pgmTab ?? 0
                 };
             case 'playlistManualNext':
@@ -264,6 +265,15 @@ class RustAudioEngineAdapter {
                 return { cmd: 'seek', player, positionMs: payload.positionMs ?? payload.ms ?? 0 };
             case 'setGain':
                 return { cmd: 'setGain', player, gain: payload.gain ?? payload.value ?? 1 };
+            case 'fade':
+                return {
+                    cmd: 'fade',
+                    player,
+                    fromGain: payload.fromGain ?? payload.from ?? undefined,
+                    toGain: payload.toGain ?? payload.to ?? payload.gain ?? payload.value ?? 1,
+                    durationMs: payload.durationMs ?? payload.ms ?? Math.round((Number(payload.seconds) || 0) * 1000),
+                    stopAfter: payload.stopAfter === true
+                };
             case 'cartwallPlay':
                 return {
                     cmd: 'loadAudio',
