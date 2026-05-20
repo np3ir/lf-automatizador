@@ -9,6 +9,13 @@ Prototipo aislado del futuro motor nativo. Esta fase no reemplaza el motor WebAu
 - Emitir estado por `stdout` en lineas JSON.
 - Servir como base para migrar players, buses, medidores y encoder.
 
+## Nota de compilacion
+
+Para asistentes de IA y programadores: despues de compilar este motor con
+`cargo build --release`, copien el binario final a `../bin/` y limpien los
+artefactos temporales con `cargo clean`. La carpeta `target/` puede crecer
+cientos de MB y no debe quedar como residuo de trabajo.
+
 ## Proceso de control
 
 Cada comando es una linea JSON simple:

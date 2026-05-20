@@ -314,7 +314,7 @@ function clearPlayerPlaybackMeta(player) {
 
 let uiPrefs = loadConfig(uiPrefsPath, { controlsPos: 'bottom', temp: true, hum: true, leftPanel: true, ext: false, sysLog: true, showRemainingTime: false, cartwall: false, playlistColumnWidths: [92, 520, 96, 82, 82] });
 let fxPrefs = loadConfig(fxPrefsPath, { preamp: 0, pan: 0, mono: false, eq_bands: [0, 0, 0, 0, 0, 0, 0, 0], eq_on: false, comp_on: false, lim_on: false, order: ['eq', 'comp', 'limiter'], custom_presets: {}, active_preset: 'def_Plano (Reset)' });
-let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, { modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, timeFolder: '', duckingFade: 1.0, duckingVolume: 20, outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default', monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', encoderSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default', playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'rustAudio', rustPlaylistOwnerEnabled: true, chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false, num_mus_fadein: 0, num_mus_fadeout: 0, num_mus_mix: 0, num_mus_mix_db: -14, eventsMasterActive: true, eventsManualOnly: false }));
+let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, { modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, timeFolder: '', duckingFade: 1.0, duckingVolume: 20, outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default', monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', encoderSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default', playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'rustAudio', rustPlaylistOwnerEnabled: true, chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_fadeout_stop: true, chk_mus_fadeout_next: true, chk_mus_mix: true, chk_mus_mix_db: true, chk_mus_mix_fadeout: false, num_mus_fadein: 0, num_mus_fadeout: 2, num_mus_fadeout_stop: 2, num_mus_fadeout_next: 0.6, num_mus_mix: 0.6, num_mus_mix_db: -14, eventsMasterActive: true, eventsManualOnly: false }));
 generalPrefs.modeRepeatTrack = false;
 generalPrefs.modeRemovePlayed = false;
 saveConfig(generalPrefsPath, generalPrefs);
@@ -332,8 +332,26 @@ if (generalPrefs.weatherFolder) {
 
 if (generalPrefs.duckingFade >= 10) generalPrefs.duckingFade = 1.0;
 
+const defaultFadeProfile = {
+    fadeinActive: false,
+    fadein: 0,
+    mixActive: true,
+    mix: 0.6,
+    mixDbActive: true,
+    mixDb: -14,
+    fadeoutStopActive: true,
+    fadeoutStop: 2,
+    fadeoutNextActive: true,
+    fadeoutNext: 0.6,
+    mixFadeoutActive: false
+};
+const defaultFileTypes = [
+    { id: 't_comercial', name: 'Comercial', color: '#ff0000', identifier: 'comercial', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, ...defaultFadeProfile },
+    { id: 't_time', name: 'Locución horaria', color: '#2ecc71', identifier: 'saytime', searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, ...defaultFadeProfile },
+    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: false, ...defaultFadeProfile }
+];
 let fileTypesData = [];
-function loadFileTypes() { fileTypesData = loadConfig(fileTypesPath, []); }
+function loadFileTypes() { fileTypesData = loadConfig(fileTypesPath, defaultFileTypes); }
 loadFileTypes();
 let genreProfiles = [];
 

@@ -24,10 +24,24 @@ function saveConfig(filePath, data) {
     try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); } catch(e) {}
 }
 
+const defaultFadeProfile = {
+    fadeinActive: false,
+    fadein: 0,
+    mixActive: true,
+    mix: 0.6,
+    mixDbActive: true,
+    mixDb: -14,
+    fadeoutStopActive: true,
+    fadeoutStop: 2,
+    fadeoutNextActive: true,
+    fadeoutNext: 0.6,
+    mixFadeoutActive: false
+};
+
 const defaultFileTypes = [
-    { id: 't_comercial', name: 'Comercial', color: '#ff0000', identifier: 'comercial', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutStopActive: false, fadeoutStop: 0, fadeoutNextActive: false, fadeoutNext: 0, mixFadeoutActive: false },
-    { id: 't_time', name: 'Locución horaria', color: '#2ecc71', identifier: 'saytime', searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutStopActive: false, fadeoutStop: 0, fadeoutNextActive: false, fadeoutNext: 0, mixFadeoutActive: false },
-    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: false, fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutStopActive: false, fadeoutStop: 0, fadeoutNextActive: false, fadeoutNext: 0, mixFadeoutActive: false }
+    { id: 't_comercial', name: 'Comercial', color: '#ff0000', identifier: 'comercial', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, ...defaultFadeProfile },
+    { id: 't_time', name: 'Locución horaria', color: '#2ecc71', identifier: 'saytime', searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, ...defaultFadeProfile },
+    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: false, ...defaultFadeProfile }
 ];
 
 let fileTypesData = loadConfig(fileTypesPath, defaultFileTypes).map(typeData => {
@@ -43,8 +57,8 @@ let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, {
     playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'rustAudio', rustPlaylistOwnerEnabled: true,
     repeatForgetProtectionEnabled: false, repeatForgetProtectionMax: 10, repeatDisableOnManualNext: true,
     removePlayedProtectionEnabled: false, removePlayedProtectionMinRemaining: 2,
-    chk_mus_fadein: false, chk_mus_fadeout_stop: false, chk_mus_fadeout_next: false, chk_mus_mix: false, chk_mus_mix_db: false, chk_mus_mix_fadeout: false,
-    num_mus_fadein: 0, num_mus_fadeout_stop: 0, num_mus_fadeout_next: 0, num_mus_mix: 0, num_mus_mix_db: -14
+    chk_mus_fadein: false, chk_mus_fadeout_stop: true, chk_mus_fadeout_next: true, chk_mus_mix: true, chk_mus_mix_db: true, chk_mus_mix_fadeout: false,
+    num_mus_fadein: 0, num_mus_fadeout_stop: 2, num_mus_fadeout_next: 0.6, num_mus_mix: 0.6, num_mus_mix_db: -14
 }));
 delete generalPrefs.num_mus_mix_fadeout;
 
@@ -180,7 +194,7 @@ document.getElementById('btn-add-type').addEventListener('click', () => {
     const newId = 't_' + Date.now();
     fileTypesData.push({
         id: newId, name: 'Nuevo Tipo', color: '#ffffff', identifier: 'nuevo', searchIn: 'all', amp: 0, report: false, voice: false, readonly: false,
-        fadeinActive: false, fadein: 0, mixActive: false, mix: 0, mixDbActive: false, mixDb: -14, fadeoutStopActive: false, fadeoutStop: 0, fadeoutNextActive: false, fadeoutNext: 0, mixFadeoutActive: false
+        ...defaultFadeProfile
     });
     currentSelectedTypeId = newId; renderLists(); loadTypeDetails(newId); loadExceptionFades(newId);
 });
