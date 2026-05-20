@@ -316,6 +316,8 @@ class RustAudioEngineProbe {
         if (message.type === 'pcmChunk') return null;
         if (message.type === 'timeLocutionEnded') return null;
         if (message.type === 'timeLocutionStarted') return null;
+        if (message.type === 'playlistAction') return null;
+        if (message.type === 'playlistModeChanged') return null;
         const pending = this.pending.shift();
         if (pending?.requestId) this.pendingByRequestId.delete(pending.requestId);
         return pending || null;

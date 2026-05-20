@@ -26,6 +26,7 @@ struct PlayerState {
     output_device_name: String,
     repeat_active: bool,
     repeat_start_ms: u64,
+    repeat_count: u64,
 }
 
 impl Default for PlayerState {
@@ -41,6 +42,7 @@ impl Default for PlayerState {
             output_device_name: String::new(),
             repeat_active: false,
             repeat_start_ms: 0,
+            repeat_count: 0,
         }
     }
 }
@@ -64,6 +66,9 @@ struct EngineState {
     routes: HashMap<String, RouteState>,
     now_playing: Option<NowPlayingState>,
     transport: Option<TransportState>,
+    playlist_rows: Vec<PlaylistRowState>,
+    playlist_mode: PlaylistModeState,
+    playlist_context: PlaylistPlaybackContext,
     encoder: EncoderState,
     /// Ganancia del fader master (0.0–2.0). Multiplicador global aplicado a
     /// players de programa (master, jingle, cartwall, pl1–pl4) al llamar
@@ -154,6 +159,9 @@ impl Default for EngineState {
             routes: HashMap::new(),
             now_playing: None,
             transport: None,
+            playlist_rows: Vec::new(),
+            playlist_mode: PlaylistModeState::default(),
+            playlist_context: PlaylistPlaybackContext::default(),
             encoder: EncoderState::default(),
             master_gain: 1.0,
             monitor_gain: 1.0,
@@ -239,6 +247,52 @@ struct TransportState {
     mix_direction: String,
     mix_reference_player: String,
     updated_at: u128,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PlaylistRowState {
+    row_id: String,
+    tab: u64,
+    order: u64,
+    row_type: String,
+    path: String,
+    title: String,
+}
+
+#[derive(Clone, Debug)]
+struct PlaylistModeState {
+    repeat_track: bool,
+    remove_played: bool,
+    loop_playlist: bool,
+    repeat_forget_protection_enabled: bool,
+    repeat_forget_protection_max: u64,
+    repeat_disable_on_manual_next: bool,
+    remove_played_protection_enabled: bool,
+    remove_played_protection_min_remaining: u64,
+}
+
+impl Default for PlaylistModeState {
+    fn default() -> Self {
+        Self {
+            repeat_track: false,
+            remove_played: false,
+            loop_playlist: false,
+            repeat_forget_protection_enabled: false,
+            repeat_forget_protection_max: 10,
+            repeat_disable_on_manual_next: true,
+            remove_played_protection_enabled: false,
+            remove_played_protection_min_remaining: 2,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct PlaylistPlaybackContext {
+    current_row_id: String,
+    current_player: String,
+    queued_row_id: String,
+    pgm_tab: u64,
+    last_finished_key: String,
 }
 
 #[derive(Clone, Debug)]
@@ -2173,6 +2227,87 @@ fn json_get_bool(input: &str, key: &str) -> Option<bool> {
     }
 }
 
+fn json_get_array_body<'a>(input: &'a str, key: &str) -> Option<&'a str> {
+    let needle = format!("\"{}\"", key);
+    let start = input.find(&needle)?;
+    let after_key = &input[start + needle.len()..];
+    let colon = after_key.find(':')?;
+    let after_colon = after_key[colon + 1..].trim_start();
+    if !after_colon.starts_with('[') {
+        return None;
+    }
+    let mut depth = 0_i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut body_start = None;
+    for (idx, ch) in after_colon.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            continue;
+        }
+        if ch == '[' {
+            depth += 1;
+            if depth == 1 {
+                body_start = Some(idx + 1);
+            }
+        } else if ch == ']' {
+            depth -= 1;
+            if depth == 0 {
+                return body_start.map(|s| &after_colon[s..idx]);
+            }
+        }
+    }
+    None
+}
+
+fn split_json_objects(input: &str) -> Vec<&str> {
+    let mut objects = Vec::new();
+    let mut depth = 0_i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut start_idx = None;
+    for (idx, ch) in input.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            continue;
+        }
+        if ch == '{' {
+            if depth == 0 {
+                start_idx = Some(idx);
+            }
+            depth += 1;
+        } else if ch == '}' {
+            depth -= 1;
+            if depth == 0 {
+                if let Some(start) = start_idx.take() {
+                    objects.push(&input[start..=idx]);
+                }
+            }
+        }
+    }
+    objects
+}
+
 fn escape_json(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
@@ -2646,6 +2781,8 @@ fn process_repeat_players(state: &mut EngineState) {
         bus_id: String,
         output_device_id: String,
         start_ms: u64,
+        next_count: u64,
+        deactivate_after_repeat: bool,
     }
 
     let mut repeats = Vec::new();
@@ -2666,6 +2803,9 @@ fn process_repeat_players(state: &mut EngineState) {
         };
         let position_ms = player.get_pos().as_millis() as u64;
         if player.empty() || position_ms.saturating_add(REPEAT_PREROLL_MS) >= duration_ms {
+            let next_count = runtime.state.repeat_count.saturating_add(1);
+            let deactivate_after_repeat = state.playlist_mode.repeat_forget_protection_enabled
+                && next_count >= state.playlist_mode.repeat_forget_protection_max.max(1);
             repeats.push(RepeatSpec {
                 player_id: player_id.clone(),
                 path: runtime.state.path.clone(),
@@ -2677,6 +2817,8 @@ fn process_repeat_players(state: &mut EngineState) {
                 },
                 output_device_id: runtime.state.output_device_id.clone(),
                 start_ms,
+                next_count,
+                deactivate_after_repeat,
             });
         }
     }
@@ -2686,14 +2828,19 @@ fn process_repeat_players(state: &mut EngineState) {
         match load_audio_player(state, &spec.player_id, &spec.path, spec.gain, true, &output_id, &spec.bus_id) {
             Ok(()) => {
                 if let Some(runtime) = state.players.get_mut(&spec.player_id) {
-                    runtime.state.repeat_active = true;
+                    runtime.state.repeat_active = !spec.deactivate_after_repeat;
                     runtime.state.repeat_start_ms = spec.start_ms;
+                    runtime.state.repeat_count = spec.next_count;
                     runtime.state.position_ms = spec.start_ms;
                     runtime.state.status = "playing".to_string();
                     if let Some(player) = &runtime.player {
                         let _ = player.try_seek(Duration::from_millis(spec.start_ms));
                         player.play();
                     }
+                }
+                if spec.deactivate_after_repeat {
+                    state.playlist_mode.repeat_track = false;
+                    emit_playlist_mode_changed(state, "repeat-limit");
                 }
             }
             Err(err) => emit_error(&format!("repeat '{}': {}", spec.player_id, err), ""),
@@ -3043,6 +3190,241 @@ fn update_transport(state: &mut EngineState, line: &str) {
         mix_reference_player: json_get_string(line, "mixReferencePlayer").unwrap_or_default(),
         updated_at: now_ms(),
     });
+}
+
+fn update_playlist_snapshot(state: &mut EngineState, line: &str) {
+    let rows_body = json_get_array_body(line, "rows").unwrap_or("");
+    let mut rows = split_json_objects(rows_body)
+        .into_iter()
+        .filter_map(|obj| {
+            let row_id = json_get_string(obj, "rowId").unwrap_or_default();
+            if row_id.is_empty() {
+                return None;
+            }
+            Some(PlaylistRowState {
+                row_id,
+                tab: json_get_u64(obj, "tab").unwrap_or(0),
+                order: json_get_u64(obj, "order").unwrap_or(0),
+                row_type: json_get_string(obj, "type").unwrap_or_else(|| "normal".to_string()),
+                path: json_get_string(obj, "path").unwrap_or_default(),
+                title: json_get_string(obj, "title").unwrap_or_default(),
+            })
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by_key(|row| (row.tab, row.order));
+    state.playlist_rows = rows;
+}
+
+fn update_playlist_mode(state: &mut EngineState, line: &str) {
+    state.playlist_mode.repeat_track = json_get_bool(line, "repeatTrack").unwrap_or(false);
+    state.playlist_mode.remove_played = json_get_bool(line, "removePlayed").unwrap_or(false);
+    state.playlist_mode.loop_playlist = json_get_bool(line, "loopPlaylist").unwrap_or(false);
+    state.playlist_mode.repeat_forget_protection_enabled = json_get_bool(line, "repeatForgetProtectionEnabled").unwrap_or(false);
+    state.playlist_mode.repeat_forget_protection_max = json_get_u64(line, "repeatForgetProtectionMax").unwrap_or(10).clamp(1, 999);
+    state.playlist_mode.repeat_disable_on_manual_next = json_get_bool(line, "repeatDisableOnManualNext").unwrap_or(true);
+    state.playlist_mode.remove_played_protection_enabled = json_get_bool(line, "removePlayedProtectionEnabled").unwrap_or(false);
+    state.playlist_mode.remove_played_protection_min_remaining = json_get_u64(line, "removePlayedProtectionMinRemaining").unwrap_or(2).clamp(1, 999);
+}
+
+fn update_playlist_playback_context(state: &mut EngineState, line: &str) {
+    let current_row_id = json_get_string(line, "currentRowId").unwrap_or_default();
+    let current_player = json_get_string(line, "currentPlayer").unwrap_or_default();
+    if state.playlist_context.current_row_id != current_row_id
+        || state.playlist_context.current_player != current_player {
+        state.playlist_context.last_finished_key.clear();
+    }
+    state.playlist_context.current_row_id = current_row_id;
+    state.playlist_context.current_player = current_player;
+    state.playlist_context.queued_row_id = json_get_string(line, "queuedRowId").unwrap_or_default();
+    state.playlist_context.pgm_tab = json_get_u64(line, "pgmTab").unwrap_or(0);
+}
+
+fn is_operational_playlist_row(row: &PlaylistRowState) -> bool {
+    row.row_type != "note"
+}
+
+fn decide_next_playlist_row(state: &EngineState, current_row_id: &str) -> Option<PlaylistRowState> {
+    if !state.playlist_context.queued_row_id.is_empty() {
+        if let Some(row) = state.playlist_rows.iter().find(|row| row.row_id == state.playlist_context.queued_row_id) {
+            return Some(row.clone());
+        }
+    }
+    let current = state.playlist_rows.iter().find(|row| row.row_id == current_row_id)?;
+    let mut same_tab = state.playlist_rows
+        .iter()
+        .filter(|row| row.tab == current.tab)
+        .cloned()
+        .collect::<Vec<_>>();
+    same_tab.sort_by_key(|row| row.order);
+    if let Some(row) = same_tab
+        .iter()
+        .find(|row| row.order > current.order && is_operational_playlist_row(row)) {
+        return Some(row.clone());
+    }
+    if state.playlist_mode.loop_playlist {
+        return same_tab
+            .into_iter()
+            .find(|row| is_operational_playlist_row(row));
+    }
+    None
+}
+
+fn emit_playlist_action(action: &str, row_id: &str, player: &str) {
+    println!(
+        "{{\"type\":\"playlistAction\",\"engine\":\"rustAudio\",\"action\":\"{}\",\"rowId\":\"{}\",\"player\":\"{}\",\"updatedAt\":{}}}",
+        escape_json(action),
+        escape_json(row_id),
+        escape_json(player),
+        now_ms()
+    );
+    let _ = io::stdout().flush();
+}
+
+fn emit_playlist_mode_changed(state: &EngineState, reason: &str) {
+    println!(
+        "{{\"type\":\"playlistModeChanged\",\"engine\":\"rustAudio\",\"repeatTrack\":{},\"removePlayed\":{},\"reason\":\"{}\",\"updatedAt\":{}}}",
+        if state.playlist_mode.repeat_track { "true" } else { "false" },
+        if state.playlist_mode.remove_played { "true" } else { "false" },
+        escape_json(reason),
+        now_ms()
+    );
+    let _ = io::stdout().flush();
+}
+
+fn operational_rows_in_tab(state: &EngineState, tab: u64) -> u64 {
+    state.playlist_rows
+        .iter()
+        .filter(|row| row.tab == tab && is_operational_playlist_row(row))
+        .count() as u64
+}
+
+fn emit_remove_played_if_allowed(state: &mut EngineState, current_row_id: &str, current_player: &str) {
+    if !state.playlist_mode.remove_played {
+        return;
+    }
+    let current_tab = state.playlist_rows
+        .iter()
+        .find(|row| row.row_id == current_row_id)
+        .map(|row| row.tab)
+        .unwrap_or(state.playlist_context.pgm_tab);
+    let operational_count = operational_rows_in_tab(state, current_tab);
+    let min_remaining = state.playlist_mode.remove_played_protection_min_remaining.max(1);
+    let protected = state.playlist_mode.remove_played_protection_enabled
+        && operational_count <= min_remaining;
+    if protected {
+        state.playlist_mode.remove_played = false;
+        emit_playlist_mode_changed(state, "remove-protection");
+        return;
+    }
+    emit_playlist_action("removeRow", current_row_id, current_player);
+    state.playlist_rows.retain(|row| row.row_id != current_row_id);
+    if state.playlist_mode.remove_played_protection_enabled
+        && operational_count.saturating_sub(1) <= min_remaining {
+        state.playlist_mode.remove_played = false;
+        emit_playlist_mode_changed(state, "remove-protection");
+    }
+}
+
+fn dispatch_playlist_destination(row: Option<PlaylistRowState>, current_player: &str) {
+    if let Some(row) = row {
+        if row.row_type == "random" {
+            emit_playlist_action("resolveRandom", &row.row_id, current_player);
+        } else if row.row_type == "stop" {
+            emit_playlist_action("stop", &row.row_id, current_player);
+        } else {
+            emit_playlist_action("playRow", &row.row_id, current_player);
+        }
+    } else {
+        emit_playlist_action("stop", "", current_player);
+    }
+}
+
+fn process_playlist_finished(state: &mut EngineState, player_id: &str, force: bool) {
+    let current_row_id = state.playlist_context.current_row_id.clone();
+    if current_row_id.is_empty() {
+        return;
+    }
+    let current_player = if player_id.is_empty() {
+        state.playlist_context.current_player.clone()
+    } else {
+        player_id.to_string()
+    };
+    if !state.playlist_context.current_player.is_empty()
+        && !current_player.is_empty()
+        && state.playlist_context.current_player != current_player {
+        return;
+    }
+    let finish_key = format!("{}|{}", current_row_id, current_player);
+    if !force && state.playlist_context.last_finished_key == finish_key {
+        return;
+    }
+    state.playlist_context.last_finished_key = finish_key;
+
+    if state.playlist_mode.repeat_track {
+        let mut deactivate_after_repeat = false;
+        if let Some(runtime) = state.players.get_mut(&current_player) {
+            let next_count = runtime.state.repeat_count.saturating_add(1);
+            runtime.state.repeat_count = next_count;
+            deactivate_after_repeat = state.playlist_mode.repeat_forget_protection_enabled
+                && next_count >= state.playlist_mode.repeat_forget_protection_max.max(1);
+            if deactivate_after_repeat {
+                runtime.state.repeat_active = false;
+            }
+        }
+        emit_playlist_action("playRow", &current_row_id, &current_player);
+        if deactivate_after_repeat {
+            state.playlist_mode.repeat_track = false;
+            emit_playlist_mode_changed(state, "repeat-limit");
+        }
+        return;
+    }
+
+    let next_row = decide_next_playlist_row(state, &current_row_id);
+    emit_remove_played_if_allowed(state, &current_row_id, &current_player);
+    dispatch_playlist_destination(next_row, &current_player);
+}
+
+fn process_playlist_manual_next(state: &mut EngineState, player_id: &str) {
+    let current_row_id = state.playlist_context.current_row_id.clone();
+    if current_row_id.is_empty() {
+        return;
+    }
+    let current_player = if player_id.is_empty() {
+        state.playlist_context.current_player.clone()
+    } else {
+        player_id.to_string()
+    };
+    emit_remove_played_if_allowed(state, &current_row_id, &current_player);
+    if state.playlist_mode.repeat_track && state.playlist_mode.repeat_disable_on_manual_next {
+        state.playlist_mode.repeat_track = false;
+        for runtime in state.players.values_mut() {
+            runtime.state.repeat_active = false;
+            runtime.state.repeat_count = 0;
+        }
+        emit_playlist_mode_changed(state, "manual-next");
+    }
+    let next_row = decide_next_playlist_row(state, &current_row_id);
+    state.playlist_context.last_finished_key.clear();
+    dispatch_playlist_destination(next_row, &current_player);
+}
+
+fn process_playlist_end_actions(state: &mut EngineState) {
+    let player_id = state.playlist_context.current_player.clone();
+    if player_id.is_empty() || state.playlist_mode.repeat_track {
+        return;
+    }
+    let Some(runtime) = state.players.get(&player_id) else {
+        return;
+    };
+    if runtime.state.status != "playing" {
+        return;
+    }
+    let Some(player) = runtime.player.as_ref() else {
+        return;
+    };
+    if player.empty() {
+        process_playlist_finished(state, &player_id, false);
+    }
 }
 
 fn update_encoder(state: &mut EngineState, line: &str) {
@@ -3598,6 +3980,7 @@ fn main() {
             EngineEvent::StdinLine(l) => l,
             EngineEvent::PushTick => {
                 process_repeat_players(&mut state);
+                process_playlist_end_actions(&mut state);
                 // Push automático de status. request_id vacío → el campo no se
                 // emite y el Node probe lo trata como mensaje espontáneo.
                 emit_status(&state, "");
@@ -3824,6 +4207,19 @@ fn main() {
             }
             "nowPlaying" => update_now_playing(&mut state, &line),
             "transport" => update_transport(&mut state, &line),
+            "playlistSnapshot" => update_playlist_snapshot(&mut state, &line),
+            "playlistMode" => update_playlist_mode(&mut state, &line),
+            "playlistPlaybackContext" => update_playlist_playback_context(&mut state, &line),
+            "playlistFinished" => {
+                update_playlist_playback_context(&mut state, &line);
+                let current_player = state.playlist_context.current_player.clone();
+                process_playlist_finished(&mut state, &current_player, true);
+            }
+            "playlistManualNext" => {
+                update_playlist_playback_context(&mut state, &line);
+                let current_player = state.playlist_context.current_player.clone();
+                process_playlist_manual_next(&mut state, &current_player);
+            }
             "encoder" => update_encoder(&mut state, &line),
             "loadAudio" => {
                 let current_gain = state.players.get(&player_id).map(|runtime| runtime.state.gain).unwrap_or(1.0);
@@ -3867,10 +4263,12 @@ fn main() {
             }
             "repeat" => {
                 let runtime = state.players.entry(player_id.clone()).or_default();
-                runtime.state.repeat_active = json_get_bool(&line, "enabled").unwrap_or(false);
+                let enabled = json_get_bool(&line, "enabled").unwrap_or(false);
+                runtime.state.repeat_active = enabled;
                 runtime.state.repeat_start_ms = json_get_u64(&line, "startMs")
                     .or_else(|| json_get_u64(&line, "positionMs"))
                     .unwrap_or(runtime.state.repeat_start_ms);
+                runtime.state.repeat_count = 0;
             }
             "stop" => {
                 if let Some(runtime) = state.players.get_mut(&player_id) {

@@ -11,6 +11,11 @@ const AUDIO_ENGINE_COMMANDS = Object.freeze([
     'nowPlaying',
     'transport',
     'repeat',
+    'playlistSnapshot',
+    'playlistMode',
+    'playlistPlaybackContext',
+    'playlistFinished',
+    'playlistManualNext',
     'cartwallPlay',
     'cartwallStop',
     'startEncoder',
@@ -200,6 +205,46 @@ class RustAudioEngineAdapter {
                     player,
                     enabled: payload.enabled === true,
                     startMs: payload.startMs ?? payload.positionMs ?? 0
+                };
+            case 'playlistSnapshot':
+                return {
+                    cmd: 'playlistSnapshot',
+                    rows: Array.isArray(payload.rows) ? payload.rows : []
+                };
+            case 'playlistMode':
+                return {
+                    cmd: 'playlistMode',
+                    repeatTrack: payload.repeatTrack === true,
+                    removePlayed: payload.removePlayed === true,
+                    loopPlaylist: payload.loopPlaylist === true,
+                    repeatForgetProtectionEnabled: payload.repeatForgetProtectionEnabled === true,
+                    repeatForgetProtectionMax: payload.repeatForgetProtectionMax ?? 10,
+                    repeatDisableOnManualNext: payload.repeatDisableOnManualNext !== false,
+                    removePlayedProtectionEnabled: payload.removePlayedProtectionEnabled === true,
+                    removePlayedProtectionMinRemaining: payload.removePlayedProtectionMinRemaining ?? 2
+                };
+            case 'playlistPlaybackContext':
+                return {
+                    cmd: 'playlistPlaybackContext',
+                    currentRowId: payload.currentRowId || '',
+                    currentPlayer: payload.currentPlayer || payload.player || '',
+                    queuedRowId: payload.queuedRowId || '',
+                    pgmTab: payload.pgmTab ?? 0
+                };
+            case 'playlistFinished':
+                return {
+                    cmd: 'playlistFinished',
+                    currentRowId: payload.currentRowId || '',
+                    currentPlayer: payload.currentPlayer || payload.player || '',
+                    pgmTab: payload.pgmTab ?? 0
+                };
+            case 'playlistManualNext':
+                return {
+                    cmd: 'playlistManualNext',
+                    currentRowId: payload.currentRowId || '',
+                    currentPlayer: payload.currentPlayer || payload.player || '',
+                    queuedRowId: payload.queuedRowId || '',
+                    pgmTab: payload.pgmTab ?? 0
                 };
             case 'load':
                 return {

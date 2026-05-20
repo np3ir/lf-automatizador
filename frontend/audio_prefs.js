@@ -13,6 +13,11 @@ const AUDIO_PREFS_DEFAULTS = {
     playlistSharedDevice: 'default',
     playlistOutputs: ['default', 'default', 'default', 'default'],
     cartwallOutputMode: 'master',
+    repeatForgetProtectionEnabled: false,
+    repeatForgetProtectionMax: 10,
+    repeatDisableOnManualNext: true,
+    removePlayedProtectionEnabled: false,
+    removePlayedProtectionMinRemaining: 2,
     // El motor Rust es la unica fuente de audio en produccion. El modo
     // 'webAudio' fue retirado del UI y de la logica: cualquier valor legado
     // ('webAudio', undefined, etc.) se promueve a 'rustAudio' en normalizeAudioPrefs.
@@ -64,6 +69,11 @@ function normalizeAudioPrefs(prefs = {}) {
         playlistSharedDevice: sharedPlaylistDevice,
         playlistOutputs: normalizePlaylistOutputs(prefs.playlistOutputs, sharedPlaylistDevice || mainDevice),
         cartwallOutputMode: cartwallMode,
+        repeatForgetProtectionEnabled: prefs.repeatForgetProtectionEnabled === true,
+        repeatForgetProtectionMax: Math.max(1, Math.min(999, parseInt(prefs.repeatForgetProtectionMax, 10) || AUDIO_PREFS_DEFAULTS.repeatForgetProtectionMax)),
+        repeatDisableOnManualNext: prefs.repeatDisableOnManualNext !== false,
+        removePlayedProtectionEnabled: prefs.removePlayedProtectionEnabled === true,
+        removePlayedProtectionMinRemaining: Math.max(1, Math.min(999, parseInt(prefs.removePlayedProtectionMinRemaining, 10) || AUDIO_PREFS_DEFAULTS.removePlayedProtectionMinRemaining)),
         audioEngineMode,
         rustPlaylistOwnerEnabled: true,
         eventPreHoldActive: prefs.eventPreHoldActive !== false,

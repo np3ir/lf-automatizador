@@ -304,6 +304,21 @@ input[type=range][orient=vertical] { writing-mode: bt-lr; -webkit-appearance: sl
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; align-items: center; justify-content: center; }
 .modal-overlay:focus { outline: none; }
 .modal-content { background-color: #222225; border: 1px solid #444; border-radius: 6px; padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.9); display: flex; flex-direction: column;}
+.repeat-options-overlay, .mode-options-overlay { background: rgba(0,0,0,0.62); }
+.repeat-options-modal, .mode-options-modal { width: 340px; max-width: calc(100vw - 40px); gap: 12px; padding: 16px; }
+.repeat-options-header, .mode-options-header { display: flex; flex-direction: column; gap: 3px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+.repeat-options-header h3, .mode-options-header h3 { margin: 0; color: #00a8ff; font-size: 16px; }
+.repeat-options-header span, .mode-options-header span { color: #aaa; font-size: 12px; }
+.repeat-option-row, .repeat-option-number, .mode-option-row, .mode-option-number { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #ddd; font-size: 13px; }
+.repeat-option-row, .mode-option-row { justify-content: flex-start; }
+.repeat-option-row input[type="checkbox"], .mode-option-row input[type="checkbox"] { accent-color: #00a8ff; }
+.repeat-option-number input, .mode-option-number input { width: 58px; text-align: center; padding-left: 6px; padding-right: 4px; box-sizing: border-box; }
+.repeat-options-actions, .mode-options-actions { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid #333; padding-top: 12px; }
+.mode-options-error { min-height: 16px; color: #ffb3a8; font-size: 12px; font-weight: bold; }
+.settings-btn.mode-options-cancel { background: #c0392b !important; border-color: #c0392b !important; color: white !important; }
+.settings-btn.mode-options-save { background: #27ae60 !important; border-color: #27ae60 !important; color: white !important; }
+.settings-btn.mode-options-cancel:hover:not(:disabled) { background: #c0392b !important; border-color: #c0392b !important; color: white !important; }
+.settings-btn.mode-options-save:hover:not(:disabled) { background: #27ae60 !important; border-color: #27ae60 !important; color: white !important; }
 .playlist-note-modal-content { width: 360px; max-width: calc(100vw - 40px); gap: 12px; }
 .playlist-note-modal-content h3 { margin: 0; color: #00a8ff; font-size: 16px; }
 .playlist-note-input { width: 100%; min-height: 84px; resize: vertical; box-sizing: border-box; line-height: 1.4; }
