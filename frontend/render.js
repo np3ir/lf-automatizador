@@ -74,12 +74,6 @@ const RANDOM_FOLDER_CACHE_TTL_MS = 60000;
 const TIME_UI_FRAME_INTERVAL_MS = 50;
 const VU_IPC_INTERVAL_MS = 20;
 const VU_DIAGNOSTICS_IPC_INTERVAL_MS = 1000;
-// RUST_LIVE_METER_POLL_MS / RUST_IDLE_STATUS_POLL_MS: retiradas del flujo.
-// El motor Rust ahora emite `status` por su propio bucle PushTick (100 ms) y
-// el renderer lo recibe vía `audio-engine-rust-event`. Se conservan las
-// constantes por si algún fallback de polling on-demand vuelve a necesitarlas.
-const RUST_LIVE_METER_POLL_MS = 50;
-const RUST_IDLE_STATUS_POLL_MS = 3000;
 const IDLE_METADATA_TEXT = 'Esperando...';
 const ICON_CLOCK_LABEL = '\u23f0 Locuci\u00f3n de hora';
 const ICON_STOP_LABEL = '\u23f9';
@@ -601,10 +595,10 @@ function syncRustPlaylistMode() {
     }).catch(() => {});
 }
 
-function syncRustPlaylistPlaybackContext() {
+function syncRustPlaylistPlaybackContext(playerIdOverride = null) {
     commandRustControlPlane('playlistPlaybackContext', {
         currentRowId: currentPlayingRow ? ensurePlaylistRowId(currentPlayingRow) : '',
-        currentPlayer: getPlaylistPlayerId(activePlayer),
+        currentPlayer: playerIdOverride || getPlaylistPlayerId(activePlayer),
         queuedRowId: queuedNextRow ? ensurePlaylistRowId(queuedNextRow) : '',
         pgmTab
     }).catch(() => {});
@@ -6571,7 +6565,7 @@ let warnedMonitorSameAsMain = false;
 const pendingPlayerStopTimeouts = new Map();
 let rustAudioProbeStatus = { available: false, running: false, lastStatus: null, lastError: '' };
 
-function shouldPollRustLiveMeters() {
+function shouldUseRustAudioEngine() {
     return generalPrefs.audioEngineMode === 'rustAudio';
 }
 
@@ -6580,7 +6574,7 @@ function shouldPollRustLiveMeters() {
 // otra parte del código necesita un pull sincrónico.
 async function refreshRustAudioProbeStatus() {
     try {
-        if (shouldPollRustLiveMeters()) {
+        if (shouldUseRustAudioEngine()) {
             const result = await ipcRenderer.invoke('audio-engine-rust-command', { cmd: 'status', silent: true });
             if (result?.success === true) {
                 rustAudioProbeStatus = {
@@ -6618,7 +6612,7 @@ async function refreshRustAudioProbeStatus() {
 // probe arranca el proceso en el primer `command()`). De ahí en adelante el
 // push fluye solo y `rustAudioProbeStatus` se mantiene fresco sin tocar IPC.
 function ensureRustEngineEagerStart() {
-    if (!shouldPollRustLiveMeters()) {
+    if (!shouldUseRustAudioEngine()) {
         // Modo webAudio: no spawneamos el motor; el fallback usa
         // ipcRenderer.invoke('audio-engine-rust-status') on-demand.
         return;
@@ -6949,20 +6943,22 @@ function buildWebAudioEngineDiagnostics() {
         encoder: (() => {
             const active = !!(
                 (liveMediaRecorder && liveMediaRecorder.state !== 'inactive')
-                || livePcmCaptureProcessor
                 || rustPcmEncoderSyncRunning
             );
+            const defaultSource = rustPcmEncoderSyncRunning ? 'master' : 'mic';
+            const defaultOwner = rustPcmEncoderSyncRunning ? 'rustAudioEngine' : 'mediaInputRenderer';
+            const defaultCaptureFormat = rustPcmEncoderSyncRunning ? 'pcm_s16le' : 'webm-opus';
             return {
                 active,
-                source: active ? (liveEncoderSourceState?.source || (livePcmCaptureProcessor ? 'master' : 'mic')) : 'sin fuente',
-                owner: active ? (liveEncoderSourceState?.owner || (livePcmCaptureProcessor ? 'webAudioRenderer' : 'mediaInputRenderer')) : 'none',
-                requestedOwner: active ? (liveEncoderSourceState?.requestedOwner || liveEncoderSourceState?.owner || (livePcmCaptureProcessor ? 'webAudioRenderer' : 'mediaInputRenderer')) : 'none',
-                captureProvider: active ? (liveEncoderSourceState?.captureProvider || liveEncoderSourceState?.owner || (livePcmCaptureProcessor ? 'webAudioRenderer' : 'mediaInputRenderer')) : 'none',
+                source: active ? (liveEncoderSourceState?.source || defaultSource) : 'sin fuente',
+                owner: active ? (liveEncoderSourceState?.owner || defaultOwner) : 'none',
+                requestedOwner: active ? (liveEncoderSourceState?.requestedOwner || liveEncoderSourceState?.owner || defaultOwner) : 'none',
+                captureProvider: active ? (liveEncoderSourceState?.captureProvider || liveEncoderSourceState?.owner || defaultOwner) : 'none',
                 encoderProvider: active ? (liveEncoderSourceState?.encoderProvider || 'auto') : 'auto',
                 tapPoint: active ? (liveEncoderSourceState?.tapPoint || 'postFx') : 'postFx',
                 rustPcmReady: liveEncoderSourceState?.rustPcmReady === true,
                 fallbackReason: active ? (liveEncoderSourceState?.fallbackReason || '') : '',
-                captureFormat: active ? (liveEncoderSourceState?.captureFormat || (livePcmCaptureProcessor ? 'pcm_s16le' : 'webm-opus')) : '',
+                captureFormat: active ? (liveEncoderSourceState?.captureFormat || defaultCaptureFormat) : '',
                 sampleRate: active ? (liveEncoderSourceState?.sampleRate || 0) : 0,
                 transport: active ? (liveEncoderSourceState?.transport || 'ffmpeg') : ''
             };
@@ -7601,7 +7597,7 @@ ipcRenderer.on('settings-updated', () => {
 
 let lastLeftPeak = 0; let lastRightPeak = 0; let isJinglePlaying = false;
 let activePlayer = playerA; let activeGain = gainA; let fadingPlayer = null; let fadingGain = null;
-let currentTrackConfig = null; let crossfadeTriggered = false;
+let currentTrackConfig = null; let crossfadeTriggered = false; let crossfadeTriggeredForRow = null;
 let currentStartTimeOffset = 0; let currentFiredDrops = [];
 let playRowSessionId = 0;
 let lastOverlayEvalSessionId = 0;
@@ -7916,12 +7912,13 @@ function handleTimeUpdate(player) {
 
     const finActivo = parseFiniteCueValue(activePlayerMeta?.playbackEndAbsolute);
 
-    if (crossfadeTriggered && finActivo !== null && elapsed < finActivo) {
+    if (crossfadeTriggered && crossfadeTriggeredForRow !== null && crossfadeTriggeredForRow !== currentPlayingRow) {
         crossfadeTriggered = false;
+        crossfadeTriggeredForRow = null;
     }
 
     if (finActivo !== null && getPlayerClockTime(activePlayer) >= finActivo && !crossfadeTriggered) {
-        crossfadeTriggered = true;
+        crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
         if (isRustPlaylistOwnerEnabled()) {
             notifyRustPlaylistFinished();
             return;
@@ -7938,7 +7935,7 @@ function handleTimeUpdate(player) {
 
         if (triggerAbsolute !== null) {
             if (absTime >= triggerAbsolute && !crossfadeTriggered && !generalPrefs.modeRepeatTrack && !stopAfterCurrent) {
-                crossfadeTriggered = true;
+                crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
                 if (isRustPlaylistOwnerEnabled()) notifyRustPlaylistFinished('mix');
                 else playNext(true);
             }
@@ -7946,7 +7943,7 @@ function handleTimeUpdate(player) {
             const fallbackMixTrigger = getFallbackMixTriggerSeconds(currentTrackConfig);
             const effectiveMixTrigger = currentTrackConfig.mixTrigger > 0 ? currentTrackConfig.mixTrigger : fallbackMixTrigger;
             if (effectiveMixTrigger > 0 && timeLeft <= effectiveMixTrigger && !crossfadeTriggered && !generalPrefs.modeRepeatTrack && !stopAfterCurrent && currentDuration > 0) {
-                crossfadeTriggered = true;
+                crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
                 if (isRustPlaylistOwnerEnabled()) notifyRustPlaylistFinished('mix');
                 else playNext(true);
             }
@@ -8076,6 +8073,7 @@ function handleEnded(player) {
         if (isPlaylistTimeActive) return;
         if (player === activePlayer && !crossfadeTriggered) {
             if (isRustPlaylistOwnerEnabled()) {
+                crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
                 notifyRustPlaylistFinished();
                 return;
             }
@@ -8757,7 +8755,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
     const keepPlaybackVisible = forceFollowView || isPlaylistRowInAutoFollowZone(previousPlayingRow || tr);
 
     try {
-        isTrackReady = false; crossfadeTriggered = false;
+        isTrackReady = false; crossfadeTriggered = false; crossfadeTriggeredForRow = null;
         currentPlaybackStartCause = options.startCause || (isAutoMix ? 'auto-mix' : forcedFadeOutSeconds > 0 ? 'forced-transition' : 'normal');
 
         fadingPlayer = activePlayer;
@@ -8793,7 +8791,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
 
         currentPlayingRow = tr; currentPlayingRow.classList.add('row-active'); queuedNextRow = resolveNextOperationalRow(currentPlayingRow.nextElementSibling, generalPrefs.modeLoopPlaylist);
         syncRustPlaylistSnapshot();
-        syncRustPlaylistPlaybackContext();
+        syncRustPlaylistPlaybackContext(currentRustPlayerId || null);
         const eventQueueKey = tr.dataset.eventQueueKey;
         if (eventQueueKey && eventRuntimeQueue.has(eventQueueKey)) {
             const entry = eventRuntimeQueue.get(eventQueueKey);
@@ -9522,7 +9520,7 @@ function stopAll() {
     } else if (currentPlayingRow && document.body.contains(currentPlayingRow)) {
         currentPlayingRow.classList.remove('row-active');
     }
-    currentPlayingRow = null; trackStartTime = null; crossfadeTriggered = false; isPlaylistTimeActive = false; rustTimeLocutionContext = null;
+    currentPlayingRow = null; trackStartTime = null; crossfadeTriggered = false; crossfadeTriggeredForRow = null; isPlaylistTimeActive = false; rustTimeLocutionContext = null;
     queuedNextRow = preservedQueuedNextRow && document.body.contains(preservedQueuedNextRow) ? preservedQueuedNextRow : null;
     const txtT = document.getElementById('txt-tiempo'); if (txtT) { txtT.innerText = "00:00.0"; txtT.classList.remove('time-warning-blue', 'time-warning-red', 'time-flash'); }
     clearAirTimeSegmentState();
@@ -9697,289 +9695,39 @@ window.addEventListener('keyup', (e) => { if (e.target.tagName === 'INPUT' || e.
 
 document.getElementById('btn-open-encoder').addEventListener('click', () => { ipcRenderer.send('open-encoder'); });
 let liveMediaRecorder = null;
-let liveCaptureStreamNode = null;
-let livePcmCaptureInput = null;
-let livePcmCaptureProcessor = null;
-let livePcmCaptureSilentGain = null;
-let livePcmCaptureSourceStream = null;
-let livePcmCaptureStats = null;
+let liveMicCaptureStream = null;
 let liveEncoderSourceState = null;
-let rustPcmEncoderSyncTimer = null;
 let rustPcmEncoderSyncRunning = false;
-let rustPcmEncoderSyncBusy = false;
-let rustPcmEncoderLastStatus = null;
-let rustPcmEncoderEmptyPlanStrikes = 0;
 
 setTimeout(() => {
     applyRustPlaylistOwnerMute();
     syncRustPlaylistControlPlane({ force: true });
 }, 1500);
 
-function resolveMasterEncoderSourceState(config = {}, sampleRate = 44100) {
-    const provider = String(config.encoderProvider || 'auto').trim();
-    const providerLower = provider.toLowerCase();
-    const tapPoint = config.tapPoint === 'preFx' ? 'preFx' : 'postFx';
-    const rustExclusive = isRustExclusiveAudioMode();
-    const forcedWebAudio = !rustExclusive && (config.captureProvider === 'webAudioRenderer' || config.owner === 'webAudioRenderer');
-    const wantsRustPcm = ['rust', 'rustaudio', 'rustaudioengine'].includes(providerLower)
-        || rustExclusive
-        || providerLower === 'auto';
-    const rustEncoder = rustAudioProbeStatus.lastStatus?.encoder || {};
-    const rustPcmReady = !forcedWebAudio && wantsRustPcm
-        && (rustEncoder.pcmBridgeReady === true
-            || (rustEncoder.rustPcmReady === true
-                && (rustEncoder.owner === 'rustAudioEngine' || rustEncoder.captureProvider === 'rustAudioEngine')));
-    const owner = rustPcmReady ? 'rustAudioEngine' : 'webAudioRenderer';
-    const fallbackReason = config.fallbackReason || (wantsRustPcm && !rustPcmReady
-        ? (rustEncoder.pcmBridgeReason || rustEncoder.fallbackReason || 'rust-master-pcm-pending')
-        : '');
-    return {
-        active: true,
-        source: 'master',
-        owner,
-        requestedOwner: wantsRustPcm ? 'rustAudioEngine' : 'webAudioRenderer',
-        captureProvider: owner,
-        encoderProvider: provider || 'auto',
-        tapPoint,
-        rustPcmReady,
-        pcmBridgeReady: rustEncoder.pcmBridgeReady === true,
-        pcmBridgeMode: rustEncoder.pcmBridgeMode || 'planned',
-        pcmBridgeReason: fallbackReason,
-        fallbackReason,
-        captureFormat: 'pcm_s16le',
-        sampleRate,
-        transport: rustPcmReady ? (rustEncoder.transport || 'ffmpeg') : 'ffmpeg'
-    };
-}
-
-function clampPcmSample(value) {
-    const sample = Math.max(-1, Math.min(1, Number(value) || 0));
-    return sample < 0 ? Math.round(sample * 32768) : Math.round(sample * 32767);
-}
-
-function writePcmSample(buffer, offset, value) {
-    buffer.writeInt16LE(clampPcmSample(value), offset);
-}
-
-function stopEncoderPcmCapture() {
-    flushEncoderPcmStats('stop');
-    if (livePcmCaptureProcessor) {
-        livePcmCaptureProcessor.onaudioprocess = null;
-        try { livePcmCaptureProcessor.disconnect(); } catch (err) { }
+function stopRendererEncoderCapture({ logStop = false } = {}) {
+    const hadCapture = !!(liveMediaRecorder || liveMicCaptureStream);
+    const recorderStream = liveMediaRecorder?.stream || null;
+    if (liveMediaRecorder && liveMediaRecorder.state !== 'inactive') {
+        try { liveMediaRecorder.stop(); } catch (err) { }
     }
-    if (livePcmCaptureInput) {
-        try { masterNode.disconnect(livePcmCaptureInput); } catch (err) { }
-        try { livePcmCaptureInput.disconnect(); } catch (err) { }
+    if (recorderStream) {
+        try { recorderStream.getTracks().forEach(track => track.stop()); } catch (err) { }
     }
-    if (livePcmCaptureSilentGain) {
-        try { livePcmCaptureSilentGain.disconnect(); } catch (err) { }
+    if (liveMicCaptureStream && liveMicCaptureStream !== recorderStream) {
+        try { liveMicCaptureStream.getTracks().forEach(track => track.stop()); } catch (err) { }
     }
-    if (livePcmCaptureSourceStream) {
-        try { livePcmCaptureSourceStream.getTracks().forEach(track => track.stop()); } catch (err) { }
-    }
-    livePcmCaptureInput = null;
-    livePcmCaptureProcessor = null;
-    livePcmCaptureSilentGain = null;
-    livePcmCaptureSourceStream = null;
-    livePcmCaptureStats = null;
-}
-
-function normalizeRustPcmPlanSource(source, fallbackPlayer) {
-    if (!source || !source.path) return null;
-    const currentTime = Number(source.currentTime);
-    const positionMsValue = Number(source.positionMs);
-    const duration = Number(source.duration);
-    const gain = Number(source.gain);
-    return {
-        player: source.player || source.id || fallbackPlayer,
-        path: source.path,
-        bus: source.bus || '',
-        gain: Number.isFinite(gain) ? Math.max(0, Math.min(4, gain)) : 1,
-        positionMs: Number.isFinite(positionMsValue)
-            ? Math.max(0, Math.round(positionMsValue))
-            : Math.max(0, Math.round((Number.isFinite(currentTime) ? currentTime : 0) * 1000)),
-        active: source.active !== false,
-        title: source.title || ''
-    };
+    liveMediaRecorder = null;
+    liveMicCaptureStream = null;
+    if (logStop && hadCapture) logSystem(`${ICON_ENCODER_LABEL} Transmision detenida.`);
 }
 
 function getLiveEncoderTapPoint() {
     return liveEncoderSourceState?.tapPoint === 'preFx' ? 'preFx' : 'postFx';
 }
 
-function rustBusFeedsEncoderMaster(bus = '') {
-    const normalized = String(bus || '').toLowerCase();
-    if (['master', 'jingle'].includes(normalized)) return true;
-    if (normalized === 'cartwall') return (generalPrefs.cartwallOutputMode || 'master') === 'master';
-    if (['pl1', 'pl2', 'pl3', 'pl4'].includes(normalized)) {
-        return (generalPrefs.playlistOutputMode || 'disabled') !== 'independent';
-    }
-    return false;
-}
-
-function buildRustPcmEncoderNativePlan() {
-    if (!shouldMirrorRustControlPlane()) return [];
-    const rustPlayers = Array.isArray(rustAudioProbeStatus.lastStatus?.players)
-        ? rustAudioProbeStatus.lastStatus.players
-        : [];
-    const seen = new Set();
-    return rustPlayers
-        .filter(player => player?.path && player.audioReady !== false && ['playing', 'loaded'].includes(player.status) && rustBusFeedsEncoderMaster(player.bus))
-        .map(player => normalizeRustPcmPlanSource({
-            player: player.id,
-            id: player.id,
-            path: player.path,
-            bus: player.bus || '',
-            gain: player.gain,
-            positionMs: player.positionMs,
-            active: player.status === 'playing',
-            title: player.id
-        }, player.id))
-        .filter(plan => {
-            if (!plan || !plan.active) return false;
-            const key = `${plan.player}|${plan.path}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        })
-        .slice(0, 12);
-}
-
-function buildRustPcmEncoderLiveMixPlan() {
-    const nativePlan = buildRustPcmEncoderNativePlan();
-    if (nativePlan.length > 0) return nativePlan;
-    if (isRustExclusiveAudioMode()) return [];
-
-    const diagnostics = buildWebAudioEngineDiagnostics();
-    const sources = [];
-    const mixPlayers = (diagnostics.mix?.players || []).filter(player => player?.path && player.active);
-    const activeMixPlayers = mixPlayers.filter(player => player.active);
-    const hasAudibleActiveMixGain = activeMixPlayers.some(player => {
-        const gain = Number(player.gain);
-        return Number.isFinite(gain) && gain > 0.002;
-    });
-    const fallbackAudiblePlayerId = !hasAudibleActiveMixGain
-        ? (diagnostics.mix?.referencePlayer || activeMixPlayers[0]?.id || '')
-        : '';
-
-    mixPlayers.forEach(player => {
-        if (!player?.path || !player.active) return;
-        const forcedGain = player.id === fallbackAudiblePlayerId ? 1 : undefined;
-        const plan = normalizeRustPcmPlanSource({
-            ...player,
-            player: player.id,
-            gain: forcedGain ?? player.gain
-        }, player.id);
-        if (plan) sources.push(plan);
-    });
-    const jinglePlayer = (diagnostics.players || []).find(item => item.id === 'jingle-player');
-    if (jinglePlayer?.active && jinglePlayer.path) {
-        const plan = normalizeRustPcmPlanSource({ ...jinglePlayer, player: 'jingle-player', gain: 1 }, 'jingle-player');
-        if (plan) sources.push(plan);
-    }
-    (diagnostics.overlays?.overlayDropSources || []).forEach((source, idx) => {
-        const plan = normalizeRustPcmPlanSource({ ...source, player: `overlay-${idx + 1}` }, `overlay-${idx + 1}`);
-        if (plan) sources.push(plan);
-    });
-    if ((generalPrefs.cartwallOutputMode || 'master') === 'master') {
-        (diagnostics.overlays?.cartwallSources || []).forEach((source, idx) => {
-            const plan = normalizeRustPcmPlanSource({ ...source, player: `cartwall-${idx + 1}` }, `cartwall-${idx + 1}`);
-            if (plan) sources.push(plan);
-        });
-    }
-
-    if (sources.length === 0 && activePlayer && !isPlayerClockPaused(activePlayer) && !activePlayer.ended) {
-        const activePath = getActivePlaybackFilePath();
-        const activePlayerId = getPlaylistPlayerId(activePlayer) || 'player-a';
-        const activeGainNode = activePlayer === playerB ? gainB : gainA;
-        const activeGainValue = Number(activeGainNode?.gain?.value);
-        const plan = normalizeRustPcmPlanSource({
-            player: activePlayerId,
-            path: activePath,
-            currentTime: getPlayerClockTime(activePlayer),
-            duration: activePlayer.duration,
-            gain: Number.isFinite(activeGainValue) && activeGainValue > 0.002 ? activeGainValue : 1,
-            active: true,
-            title: getVisibleCurrentSongText()
-        }, activePlayerId);
-        if (plan) {
-            sources.push(plan);
-            if (!window._lastEncoderDirectPlayerPlan) {
-                logSystem(`[ENCODER] Rust PCM usando player activo directo: ${activePlayerId}.`);
-                window._lastEncoderDirectPlayerPlan = true;
-            }
-        }
-    } else if (sources.length > 0) {
-        window._lastEncoderDirectPlayerPlan = false;
-    }
-
-    const seen = new Set();
-    const unique = sources.filter(source => {
-        if (!source.active) return false;
-        const key = `${source.player}|${source.path}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    }).slice(0, 8);
-    const hasAudibleActiveSource = unique.some(source => source.active && Number(source.gain) > 0.002);
-    if (!hasAudibleActiveSource) {
-        const fallback = unique.find(source => source.active) || unique[0];
-        if (fallback) fallback.gain = 1;
-    }
-    return unique;
-}
-
-async function syncRustPcmEncoderOnce() {
-    if (!rustPcmEncoderSyncRunning || rustPcmEncoderSyncBusy) return;
-    rustPcmEncoderSyncBusy = true;
-    try {
-        const players = buildRustPcmEncoderLiveMixPlan();
-        if (players.length === 0) {
-            if (!window._lastEncoderSyncEmpty) {
-                logSystem("[ENCODER] Rust PCM sync: Plan vacio (silencio).");
-                window._lastEncoderSyncEmpty = true;
-            }
-            rustPcmEncoderEmptyPlanStrikes++;
-            if (rustPcmEncoderEmptyPlanStrikes >= 3) {
-                const diagnostics = buildWebAudioEngineDiagnostics();
-                if (isRustExclusiveAudioMode()) {
-                    logSystem("[ENCODER] Rust PCM sin fuentes vivas. Modo Rust exclusivo: Web Audio no se activa como respaldo.");
-                    rustPcmEncoderEmptyPlanStrikes = 0;
-                    return;
-                }
-                logSystem("[ENCODER] Rust PCM sin fuentes vivas. Volviendo a captura master WebAudio.");
-                ipcRenderer.send('encoder-request-webaudio-fallback', {
-                    reason: 'rust-pcm-empty-live-plan',
-                    activePlayer: diagnostics.mix?.referencePlayer || '',
-                    mixPhase: diagnostics.mix?.phase || '',
-                    audibleCount: diagnostics.mix?.audibleCount || 0
-                });
-                rustPcmEncoderEmptyPlanStrikes = 0;
-                return;
-            }
-        } else {
-            window._lastEncoderSyncEmpty = false;
-            rustPcmEncoderEmptyPlanStrikes = 0;
-        }
-        rustPcmEncoderLastStatus = await ipcRenderer.invoke('rust-pcm-encoder-sync', {
-            players,
-            fx: buildRustFxSyncPlan(),
-            tapPoint: getLiveEncoderTapPoint()
-        });
-        if (rustPcmEncoderLastStatus?.success === false) {
-            logSystem(`[ENCODER] Rust PCM sync: ${rustPcmEncoderLastStatus.error || 'sin detalle'}`);
-        }
-    } catch (err) {
-        logSystem(`[ENCODER] Rust PCM sync fallo: ${err.message || err}`);
-    } finally {
-        rustPcmEncoderSyncBusy = false;
-    }
-}
-
 function startRustPcmEncoderSync(config = {}) {
-    stopEncoderPcmCapture();
+    stopRendererEncoderCapture();
     rustPcmEncoderSyncRunning = true;
-    rustPcmEncoderEmptyPlanStrikes = 0;
     liveEncoderSourceState = {
         ...config,
         active: true,
@@ -9992,11 +9740,8 @@ function startRustPcmEncoderSync(config = {}) {
         pcmBridgeReady: true,
         captureFormat: 'pcm_s16le',
         sampleRate: Number(config.sampleRate) || Math.round(audioCtx.sampleRate || 44100),
-        transport: 'ffmpeg-rust-pcm-bridge'
+        transport: config.transport || 'ffmpeg-rust-pcm-tap'
     };
-    if (rustPcmEncoderSyncTimer) clearInterval(rustPcmEncoderSyncTimer);
-    rustPcmEncoderSyncTimer = setInterval(syncRustPcmEncoderOnce, 1000);
-    syncRustPcmEncoderOnce();
     setEncoderIncidentStatus('connecting');
     logSystem(`[ENCODER] Rust PCM conectado al encoder. Punto de escucha: ${getLiveEncoderTapPoint() === 'preFx' ? 'Pre-FX' : 'Post-FX'}.`);
     // FIX BUG ENCODER PRE-FX: al iniciar la captura PCM del encoder, sincronizar
@@ -10009,159 +9754,71 @@ function startRustPcmEncoderSync(config = {}) {
 }
 
 function stopRustPcmEncoderSync() {
-    if (rustPcmEncoderSyncTimer) clearInterval(rustPcmEncoderSyncTimer);
-    rustPcmEncoderSyncTimer = null;
     rustPcmEncoderSyncRunning = false;
-    rustPcmEncoderSyncBusy = false;
-    rustPcmEncoderLastStatus = null;
-    rustPcmEncoderEmptyPlanStrikes = 0;
-}
-
-function initEncoderPcmStats(sampleRate, processorSize) {
-    const now = performance.now();
-    livePcmCaptureStats = {
-        sampleRate,
-        processorSize,
-        expectedGapMs: processorSize / sampleRate * 1000,
-        startedAt: now,
-        lastChunkAt: 0,
-        lastSummaryAt: now,
-        chunks: 0,
-        bytes: 0,
-        maxGapMs: 0,
-        gapWarnings: 0
-    };
-}
-
-function flushEncoderPcmStats(reason = 'summary') {
-    if (!livePcmCaptureStats || !livePcmCaptureStats.chunks) return;
-    const now = performance.now();
-    const elapsedSec = Math.max(0.001, (now - livePcmCaptureStats.startedAt) / 1000);
-    ipcRenderer.send('encoder-health', {
-        source: 'renderer-pcm',
-        reason,
-        chunks: livePcmCaptureStats.chunks,
-        bytes: livePcmCaptureStats.bytes,
-        elapsedSec,
-        expectedGapMs: livePcmCaptureStats.expectedGapMs,
-        maxGapMs: livePcmCaptureStats.maxGapMs,
-        gapWarnings: livePcmCaptureStats.gapWarnings
-    });
-    livePcmCaptureStats.lastSummaryAt = now;
-    livePcmCaptureStats.maxGapMs = 0;
-}
-
-function recordEncoderPcmChunk(byteLength) {
-    if (!livePcmCaptureStats) return;
-    const now = performance.now();
-    if (livePcmCaptureStats.lastChunkAt) {
-        const gapMs = now - livePcmCaptureStats.lastChunkAt;
-        livePcmCaptureStats.maxGapMs = Math.max(livePcmCaptureStats.maxGapMs, gapMs);
-        if (gapMs > 500) {
-            livePcmCaptureStats.gapWarnings++;
-            ipcRenderer.send('encoder-health', {
-                source: 'renderer-pcm',
-                reason: 'chunk-gap',
-                gapMs,
-                expectedGapMs: livePcmCaptureStats.expectedGapMs,
-                chunks: livePcmCaptureStats.chunks
-            });
-        }
-    }
-    livePcmCaptureStats.lastChunkAt = now;
-    livePcmCaptureStats.chunks++;
-    livePcmCaptureStats.bytes += byteLength;
-    if (now - livePcmCaptureStats.lastSummaryAt > 60000) flushEncoderPcmStats('minute');
-}
-
-function startMasterPcmEncoderCapture(config = {}) {
-    stopEncoderPcmCapture();
-    const processorSize = 4096;
-    const sampleRate = Math.round(audioCtx.sampleRate || 44100);
-    liveEncoderSourceState = resolveMasterEncoderSourceState(config, sampleRate);
-    initEncoderPcmStats(sampleRate, processorSize);
-    livePcmCaptureInput = audioCtx.createGain();
-    livePcmCaptureProcessor = audioCtx.createScriptProcessor(processorSize, 2, 2);
-    livePcmCaptureSilentGain = audioCtx.createGain();
-    livePcmCaptureSilentGain.gain.value = 0;
-    livePcmCaptureInput.connect(livePcmCaptureProcessor);
-    livePcmCaptureProcessor.connect(livePcmCaptureSilentGain);
-    livePcmCaptureSilentGain.connect(audioCtx.destination);
-    masterNode.connect(livePcmCaptureInput);
-
-    livePcmCaptureProcessor.onaudioprocess = (event) => {
-        try {
-            const input = event.inputBuffer;
-            const frames = input.length;
-            const left = input.getChannelData(0);
-            const right = input.numberOfChannels > 1 ? input.getChannelData(1) : left;
-            const pcm = Buffer.allocUnsafe(frames * 4);
-            for (let idx = 0; idx < frames; idx++) {
-                const offset = idx * 4;
-                writePcmSample(pcm, offset, left[idx]);
-                writePcmSample(pcm, offset + 2, right[idx]);
-            }
-            recordEncoderPcmChunk(pcm.byteLength);
-            ipcRenderer.send('audio-chunk', pcm);
-        } catch (err) {
-            logSystem(`[ERROR] Captura PCM encoder: ${err.message || err}`);
-        }
-    };
-
-    ipcRenderer.send('init-ffmpeg', {
-        ...config,
-        ...liveEncoderSourceState,
-        captureFormat: 'pcm_s16le',
-        sampleRate
-    });
 }
 
 ipcRenderer.on('start-audio-capture', async (e, config) => {
     try {
+        config = config || {};
         setEncoderIncidentStatus('connecting');
         stopRustPcmEncoderSync();
-        if (liveMediaRecorder && liveMediaRecorder.state !== 'inactive') {
-            liveMediaRecorder.stop();
-            liveMediaRecorder.stream.getTracks().forEach(t => t.stop());
-            liveMediaRecorder = null;
-        }
-        if (liveCaptureStreamNode) {
-            try { masterNode.disconnect(liveCaptureStreamNode); } catch (err) { }
-            liveCaptureStreamNode = null;
-        }
-        stopEncoderPcmCapture();
-        let captureStream;
-        if (config.source === 'master') {
-            startMasterPcmEncoderCapture(config);
-        } else {
-            captureStream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: config.micId ? { exact: config.micId } : undefined } });
-            livePcmCaptureSourceStream = captureStream;
-            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-            liveMediaRecorder = new MediaRecorder(captureStream, { mimeType });
-            liveMediaRecorder.ondataavailable = async (event) => { if (event.data.size > 0) ipcRenderer.send('audio-chunk', Buffer.from(await event.data.arrayBuffer())); };
-            liveMediaRecorder.onerror = (event) => {
-                const msg = event?.error?.message || 'Error desconocido de MediaRecorder';
-                logSystem(`[ERROR] Captura encoder: ${msg}`);
-                ipcRenderer.send('stop-encoder');
-            };
+        stopRendererEncoderCapture();
+        const requestedSource = config.source || 'master';
+        if (requestedSource === 'master') {
             liveEncoderSourceState = {
-                active: true,
-                source: 'mic',
-                owner: 'mediaInputRenderer',
-                requestedOwner: 'mediaInputRenderer',
-                captureProvider: 'mediaInputRenderer',
-                encoderProvider: 'auto',
+                ...config,
+                active: false,
+                source: 'master',
+                owner: 'rustAudioEngine',
+                requestedOwner: 'rustAudioEngine',
+                captureProvider: 'rustAudioEngine',
+                encoderProvider: config.encoderProvider || 'auto',
+                tapPoint: config.tapPoint === 'preFx' ? 'preFx' : 'postFx',
                 rustPcmReady: false,
-                fallbackReason: '',
-                captureFormat: 'webm-opus',
+                fallbackReason: 'renderer-master-webaudio-disabled',
+                captureFormat: 'pcm_s16le',
                 sampleRate: 0,
-                transport: 'ffmpeg'
+                transport: 'ffmpeg-rust-pcm-tap'
             };
-            ipcRenderer.send('init-ffmpeg', config);
-            liveMediaRecorder.start(250);
+            setEncoderIncidentStatus('error');
+            logSystem('[ENCODER] Captura master WebAudio bloqueada: el master sale solo por Rust PCM tap.');
+            ipcRenderer.send('stop-encoder');
+            return;
         }
+        const captureStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                deviceId: config.micId ? { exact: config.micId } : undefined,
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            }
+        });
+        liveMicCaptureStream = captureStream;
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+        liveMediaRecorder = new MediaRecorder(captureStream, { mimeType });
+        liveMediaRecorder.ondataavailable = async (event) => { if (event.data.size > 0) ipcRenderer.send('audio-chunk', Buffer.from(await event.data.arrayBuffer())); };
+        liveMediaRecorder.onerror = (event) => {
+            const msg = event?.error?.message || 'Error desconocido de MediaRecorder';
+            logSystem(`[ERROR] Captura encoder: ${msg}`);
+            ipcRenderer.send('stop-encoder');
+        };
+        liveEncoderSourceState = {
+            active: true,
+            source: 'mic',
+            owner: 'mediaInputRenderer',
+            requestedOwner: 'mediaInputRenderer',
+            captureProvider: 'mediaInputRenderer',
+            encoderProvider: 'auto',
+            rustPcmReady: false,
+            fallbackReason: '',
+            captureFormat: 'webm-opus',
+            sampleRate: 0,
+            transport: 'ffmpeg'
+        };
+        ipcRenderer.send('init-ffmpeg', config);
+        liveMediaRecorder.start(250);
         if (!isPlaybackActuallyOnAir()) setIdleBroadcastMetadata();
-        logSystem(config.source === 'master' ? "[ENCODER] Iniciando transmision PCM desde master..." : "[ENCODER] Iniciando transmision desde microfono...");
+        logSystem("[ENCODER] Iniciando transmision desde microfono...");
     } catch (err) { setEncoderIncidentStatus('error'); logSystem(`[ERROR] Fallo al iniciar captura: ${err.message}`); ipcRenderer.send('stop-encoder'); }
 });
 
@@ -10175,17 +9832,7 @@ ipcRenderer.on('stop-rust-pcm-encoder-sync', () => {
 
 ipcRenderer.on('stop-audio-capture', () => {
     stopRustPcmEncoderSync();
-    if (liveMediaRecorder && liveMediaRecorder.state !== 'inactive') {
-        liveMediaRecorder.stop();
-        liveMediaRecorder.stream.getTracks().forEach(t => t.stop());
-        liveMediaRecorder = null;
-        logSystem(`${ICON_ENCODER_LABEL} Transmision detenida.`);
-    }
-    if (liveCaptureStreamNode) {
-        try { masterNode.disconnect(liveCaptureStreamNode); } catch (err) { }
-        liveCaptureStreamNode = null;
-    }
-    stopEncoderPcmCapture();
+    stopRendererEncoderCapture({ logStop: true });
     liveEncoderSourceState = null;
     setEncoderIncidentStatus('disconnected');
 });
@@ -11469,6 +11116,7 @@ ipcRenderer.on('audio-engine-rust-event', (e, message) => {
                     stopAll();
                     return;
                 }
+                crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
                 notifyRustPlaylistFinished();
             }
         }
