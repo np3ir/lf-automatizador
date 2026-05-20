@@ -57,7 +57,15 @@ if not exist "node_modules\better-sqlite3\build\Release\" (
 
 echo.
 echo [Paso 5/5] Compilando motor de audio Rust nativo...
+set "RUST_NEEDS_BUILD=0"
 if not exist "bin\lf-audio-engine.exe" (
+    set "RUST_NEEDS_BUILD=1"
+) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$bin = Get-Item 'bin\lf-audio-engine.exe'; $src = Get-ChildItem 'audio-engine-rust\src','audio-engine-rust\Cargo.toml','audio-engine-rust\Cargo.lock' -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($src -and $src.LastWriteTime -gt $bin.LastWriteTime) { exit 1 } else { exit 0 }" >nul 2>&1
+    if errorlevel 1 set "RUST_NEEDS_BUILD=1"
+)
+
+if "%RUST_NEEDS_BUILD%"=="1" (
     echo Compilando lf-audio-engine... (primera vez puede tomar varios minutos)
     cd audio-engine-rust
     call cargo build --release
@@ -67,7 +75,7 @@ if not exist "bin\lf-audio-engine.exe" (
     echo.
     echo [OK] Motor compilado exitosamente.
 ) else (
-    echo Motor de audio ya esta compilado.
+    echo Motor de audio ya esta compilado y actualizado.
 )
 
 echo.

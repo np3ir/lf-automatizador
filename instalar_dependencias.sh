@@ -210,12 +210,23 @@ fi
 step "Verificando motor de audio Rust..."
 
 RUST_BIN="bin/lf-audio-engine"
+RUST_NEEDS_BUILD=false
 
-if [ -f "$RUST_BIN" ]; then
+if [ ! -f "$RUST_BIN" ]; then
+    RUST_NEEDS_BUILD=true
+elif [ -n "$(find audio-engine-rust/src audio-engine-rust/Cargo.toml audio-engine-rust/Cargo.lock -newer "$RUST_BIN" -print -quit 2>/dev/null)" ]; then
+    RUST_NEEDS_BUILD=true
+fi
+
+if [ "$RUST_NEEDS_BUILD" = false ]; then
+    echo -e "${GREEN}  OK: el binario Linux esta actualizado.${NC}"
     echo -e "${GREEN}  ✓ Motor de audio: binario Linux presente${NC}"
     chmod +x "$RUST_BIN"
 else
     if [ -f "audio-engine-rust/Cargo.toml" ] && command -v cargo &> /dev/null; then
+        if [ -f "$RUST_BIN" ]; then
+            echo -e "${YELLOW}  AVISO: el codigo Rust es mas nuevo que el binario; se recomienda recompilar.${NC}"
+        fi
         echo -e "${YELLOW}  ○ El binario del motor de audio no existe.${NC}"
         read -p "  ¿Compilar ahora? Puede tomar 3-5 minutos (S/n): " respuesta
         if [[ "$respuesta" != "n" && "$respuesta" != "N" ]]; then
