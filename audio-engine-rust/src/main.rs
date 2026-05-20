@@ -24,6 +24,8 @@ struct PlayerState {
     bus_id: String,
     output_device_id: String,
     output_device_name: String,
+    repeat_active: bool,
+    repeat_start_ms: u64,
 }
 
 impl Default for PlayerState {
@@ -37,6 +39,8 @@ impl Default for PlayerState {
             bus_id: String::new(),
             output_device_id: String::new(),
             output_device_name: String::new(),
+            repeat_active: false,
+            repeat_start_ms: 0,
         }
     }
 }
@@ -2630,6 +2634,73 @@ fn load_audio_player(state: &mut EngineState, player_id: &str, file_path: &str, 
     Ok(())
 }
 
+fn process_repeat_players(state: &mut EngineState) {
+    const REPEAT_PREROLL_MS: u64 = 200;
+    const MIN_REPEAT_WINDOW_MS: u64 = 500;
+
+    #[derive(Clone)]
+    struct RepeatSpec {
+        player_id: String,
+        path: String,
+        gain: f32,
+        bus_id: String,
+        output_device_id: String,
+        start_ms: u64,
+    }
+
+    let mut repeats = Vec::new();
+    for (player_id, runtime) in state.players.iter() {
+        if !runtime.state.repeat_active || runtime.state.status != "playing" {
+            continue;
+        }
+        if runtime.state.path.trim().is_empty() || runtime.state.path == "<time-locution>" {
+            continue;
+        }
+        let duration_ms = runtime.state.duration_ms;
+        let start_ms = runtime.state.repeat_start_ms.min(duration_ms.saturating_sub(1));
+        if duration_ms <= start_ms + MIN_REPEAT_WINDOW_MS {
+            continue;
+        }
+        let Some(player) = runtime.player.as_ref() else {
+            continue;
+        };
+        let position_ms = player.get_pos().as_millis() as u64;
+        if player.empty() || position_ms.saturating_add(REPEAT_PREROLL_MS) >= duration_ms {
+            repeats.push(RepeatSpec {
+                player_id: player_id.clone(),
+                path: runtime.state.path.clone(),
+                gain: runtime.state.gain,
+                bus_id: if runtime.state.bus_id.trim().is_empty() {
+                    default_bus_for_player(player_id).to_string()
+                } else {
+                    runtime.state.bus_id.clone()
+                },
+                output_device_id: runtime.state.output_device_id.clone(),
+                start_ms,
+            });
+        }
+    }
+
+    for spec in repeats {
+        let output_id = resolve_output_for_bus(state, &spec.bus_id, &spec.output_device_id);
+        match load_audio_player(state, &spec.player_id, &spec.path, spec.gain, true, &output_id, &spec.bus_id) {
+            Ok(()) => {
+                if let Some(runtime) = state.players.get_mut(&spec.player_id) {
+                    runtime.state.repeat_active = true;
+                    runtime.state.repeat_start_ms = spec.start_ms;
+                    runtime.state.position_ms = spec.start_ms;
+                    runtime.state.status = "playing".to_string();
+                    if let Some(player) = &runtime.player {
+                        let _ = player.try_seek(Duration::from_millis(spec.start_ms));
+                        player.play();
+                    }
+                }
+            }
+            Err(err) => emit_error(&format!("repeat '{}': {}", spec.player_id, err), ""),
+        }
+    }
+}
+
 fn route_bus(state: &mut EngineState, bus_id: &str, output_id: &str) -> Result<(), String> {
     let (resolved_output_id, resolved_output_name) = ensure_output(state, output_id)?;
 
@@ -3526,6 +3597,7 @@ fn main() {
         let line = match event {
             EngineEvent::StdinLine(l) => l,
             EngineEvent::PushTick => {
+                process_repeat_players(&mut state);
                 // Push automático de status. request_id vacío → el campo no se
                 // emite y el Node probe lo trata como mensaje espontáneo.
                 emit_status(&state, "");
@@ -3792,6 +3864,13 @@ fn main() {
                 if let Some(player) = &runtime.player {
                     player.pause();
                 }
+            }
+            "repeat" => {
+                let runtime = state.players.entry(player_id.clone()).or_default();
+                runtime.state.repeat_active = json_get_bool(&line, "enabled").unwrap_or(false);
+                runtime.state.repeat_start_ms = json_get_u64(&line, "startMs")
+                    .or_else(|| json_get_u64(&line, "positionMs"))
+                    .unwrap_or(runtime.state.repeat_start_ms);
             }
             "stop" => {
                 if let Some(runtime) = state.players.get_mut(&player_id) {

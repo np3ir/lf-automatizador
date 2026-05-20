@@ -61,6 +61,7 @@ const PLAYBACK_GUARD_COOLDOWN_MS = 6000;
 const PLAYBACK_GUARD_SILENCE_THRESHOLD = 1.5;
 const TRACK_LOAD_TIMEOUT_MS = 12000;
 const RUST_MIRROR_SEEK_DEBOUNCE_MS = 2000;
+const RUST_OWNER_POSITION_JUMP_GRACE_MS = 3500;
 const PREANALYSIS_BATCH_DELAY_MS = 900;
 const RANDOM_WARM_LOOKAHEAD_ROWS = 12;
 const RANDOM_FOLDER_CACHE_TTL_MS = 60000;
@@ -1123,7 +1124,9 @@ const rustPlaylistOwnerHealth = {
     lastPlayerId: '',
     lastPositionMs: null,
     lastPositionAt: 0,
-    audioNotReadySince: 0
+    audioNotReadySince: 0,
+    positionJumpGraceUntil: 0,
+    positionJumpReason: ''
 };
 let rustPlaylistStopGuardUntil = 0;
 const rustPlaylistVirtualClock = {
@@ -1393,6 +1396,27 @@ function resetRustPlaylistOwnerWatch(playerId = '') {
     rustPlaylistOwnerHealth.lastPositionMs = null;
     rustPlaylistOwnerHealth.lastPositionAt = Date.now();
     rustPlaylistOwnerHealth.audioNotReadySince = 0;
+    rustPlaylistOwnerHealth.positionJumpGraceUntil = 0;
+    rustPlaylistOwnerHealth.positionJumpReason = '';
+}
+
+function markExpectedPlaybackPositionJump(reason = 'seek', targetSeconds = null) {
+    const now = Date.now();
+    const targetMs = Number.isFinite(Number(targetSeconds))
+        ? Math.max(0, Math.round(Number(targetSeconds) * 1000))
+        : Math.max(0, Math.round(getPlayerClockTime(activePlayer) * 1000));
+    playbackGuard.lastTimeValue = targetMs / 1000;
+    playbackGuard.lastAdvanceAt = now;
+    playbackGuard.cooldownUntil = Math.max(playbackGuard.cooldownUntil || 0, now + 1200);
+
+    const playerId = getPlaylistPlayerId(activePlayer);
+    if (!playerId || !isRustPlaylistOwnerEnabled()) return;
+    rustPlaylistOwnerHealth.lastPlayerId = playerId;
+    rustPlaylistOwnerHealth.lastPositionMs = targetMs;
+    rustPlaylistOwnerHealth.lastPositionAt = now;
+    rustPlaylistOwnerHealth.audioNotReadySince = 0;
+    rustPlaylistOwnerHealth.positionJumpGraceUntil = now + RUST_OWNER_POSITION_JUMP_GRACE_MS;
+    rustPlaylistOwnerHealth.positionJumpReason = reason;
 }
 
 function watchRustPlaylistOwnerHealth(status = null) {
@@ -1409,6 +1433,11 @@ function watchRustPlaylistOwnerHealth(status = null) {
     if (rustPlaylistOwnerHealth.lastPositionMs === null || Math.abs(positionMs - rustPlaylistOwnerHealth.lastPositionMs) > 40) {
         rustPlaylistOwnerHealth.lastPositionMs = positionMs;
         rustPlaylistOwnerHealth.lastPositionAt = now;
+    }
+    if (now < rustPlaylistOwnerHealth.positionJumpGraceUntil) {
+        rustPlaylistOwnerHealth.lastPositionAt = now;
+        rustPlaylistOwnerHealth.audioNotReadySince = 0;
+        return;
     }
     if (rustPlayer.audioReady === false) {
         if (!rustPlaylistOwnerHealth.audioNotReadySince) rustPlaylistOwnerHealth.audioNotReadySince = now;
@@ -1605,6 +1634,17 @@ function sendRustOwnerPlayActive() {
     return true;
 }
 
+function syncRustRepeatTrackMode({ player = getPlaylistPlayerId(activePlayer), enabled = generalPrefs.modeRepeatTrack } = {}) {
+    if (!player || !isRustPlaylistOwnerEnabled()) return;
+    const meta = getPlayerPlaybackMeta(activePlayer) || {};
+    const repeatStartMs = Math.max(0, Math.round(((typeof meta.startOffset === 'number' ? meta.startOffset : currentStartTimeOffset) || 0) * 1000));
+    commandRustPlaylist('repeat', {
+        player,
+        enabled: enabled === true,
+        startMs: repeatStartMs
+    }).catch(() => { });
+}
+
 function syncRustPlaylistControlPlane({ force = false, syncPosition = force } = {}) {
     if (!shouldMirrorRustControlPlane()) return;
     if (isRustPlaylistStopGuardActive()) return;
@@ -1764,7 +1804,11 @@ function triggerPlaybackGuardRecovery(reason) {
     playbackGuard.cooldownUntil = now + PLAYBACK_GUARD_COOLDOWN_MS;
     setIncidentStatus('air', 'Recuperando', 'warn');
     recordIncident(`[GUARDIA AIRE] ${reason}. Intentando recuperar...`, { category: 'guard', level: 'warn', autoAction: true });
-    if (currentPlayingRow && document.body.contains(currentPlayingRow) && !generalPrefs.modeRepeatTrack) {
+    if (currentPlayingRow && document.body.contains(currentPlayingRow) && generalPrefs.modeRepeatTrack) {
+        syncRustRepeatTrackMode({ enabled: true });
+        return;
+    }
+    if (currentPlayingRow && document.body.contains(currentPlayingRow)) {
         const resumeAt = getPlayerClockTime(activePlayer);
         if (resumeAt > 0.25) currentPlayingRow.dataset.resumeStart = resumeAt.toFixed(3);
         playRow(currentPlayingRow, false);
@@ -1802,6 +1846,42 @@ function toggleStopAfter() {
     const btnStopAfter = document.getElementById('btn-stop-after');
     if (btnStopAfter) btnStopAfter.addEventListener('click', toggleStopAfter);
 })();
+
+function setRepeatTrackMode(enabled, { announce = true } = {}) {
+    const nextValue = enabled === true;
+    if (generalPrefs.modeRepeatTrack === nextValue) return;
+    generalPrefs.modeRepeatTrack = nextValue;
+    saveConfig(generalPrefsPath, generalPrefs);
+    const btnModeRepeat = document.getElementById('btn-mode-repeat');
+    if (btnModeRepeat) btnModeRepeat.classList.toggle('active-repeat', nextValue);
+    markExpectedPlaybackPositionJump(nextValue ? 'repeat-enabled' : 'repeat-disabled');
+    syncRustRepeatTrackMode({ enabled: nextValue });
+    updateNextTrackVisuals();
+    if (announce) {
+        recordIncident(`[GUARDIA AIRE] Bucle de cancion ${nextValue ? 'activado' : 'desactivado'}.`, {
+            category: 'guard',
+            level: 'success',
+            throttleKey: 'repeat-track-mode-toggle'
+        });
+    }
+}
+
+function setLoopPlaylistMode(enabled, { announce = true } = {}) {
+    const nextValue = enabled === true;
+    if (generalPrefs.modeLoopPlaylist === nextValue) return;
+    generalPrefs.modeLoopPlaylist = nextValue;
+    saveConfig(generalPrefsPath, generalPrefs);
+    const btnModeLoop = document.getElementById('btn-mode-looplist');
+    if (btnModeLoop) btnModeLoop.classList.toggle('active-loop', nextValue);
+    updateNextTrackVisuals();
+    if (announce) {
+        recordIncident(`[GUARDIA AIRE] Bucle de lista ${nextValue ? 'activado' : 'desactivado'}.`, {
+            category: 'guard',
+            level: 'success',
+            throttleKey: 'loop-playlist-mode-toggle'
+        });
+    }
+}
 
 function updateAppTitle(text = '') {
     const base = 'LF Automatizador v0.9.0';
@@ -2056,7 +2136,31 @@ document.addEventListener("DOMContentLoaded", () => {
     if (incidentPanel) incidentPanel.style.display = uiPrefs.sysLog ? '' : 'none';
 
     const btnModeLoop = document.getElementById('btn-mode-looplist');
-    if (btnModeLoop && generalPrefs.modeLoopPlaylist) btnModeLoop.classList.add('active-loop');
+    if (btnModeLoop) {
+        if (generalPrefs.modeLoopPlaylist) btnModeLoop.classList.add('active-loop');
+        btnModeLoop.addEventListener('click', () => {
+            setLoopPlaylistMode(!generalPrefs.modeLoopPlaylist);
+        });
+    }
+
+    const btnModeRemove = document.getElementById('btn-mode-remove');
+    if (btnModeRemove) {
+        if (generalPrefs.modeRemovePlayed) btnModeRemove.classList.add('active-remove');
+        btnModeRemove.addEventListener('click', () => {
+            generalPrefs.modeRemovePlayed = !generalPrefs.modeRemovePlayed;
+            saveConfig(generalPrefsPath, generalPrefs);
+            btnModeRemove.classList.toggle('active-remove', generalPrefs.modeRemovePlayed);
+            updateNextTrackVisuals();
+        });
+    }
+
+    const btnModeRepeat = document.getElementById('btn-mode-repeat');
+    if (btnModeRepeat) {
+        if (generalPrefs.modeRepeatTrack) btnModeRepeat.classList.add('active-repeat');
+        btnModeRepeat.addEventListener('click', () => {
+            setRepeatTrackMode(!generalPrefs.modeRepeatTrack);
+        });
+    }
 
     const toolbarGroup = document.querySelector('.toolbar-left-tools');
     if (toolbarGroup && !document.getElementById('btn-open-cartwall')) {
@@ -2994,6 +3098,7 @@ ipcRenderer.on('menu-shuffle', () => { handleShuffleActivePlaylist(); });
 ipcRenderer.on('menu-clear-played', () => { handleClearPlayedTracks(); });
 ipcRenderer.on('menu-check-links', () => { handleCheckBrokenLinks(); });
 ipcRenderer.on('menu-open-rotation', () => { openRotationModal(); });
+ipcRenderer.on('menu-toggle-loop', () => { setRepeatTrackMode(!generalPrefs.modeRepeatTrack); });
 
 ipcRenderer.on('menu-add-stop', () => { insertSpecialRow('stop'); });
 ipcRenderer.on('menu-add-note', async () => {
@@ -5394,6 +5499,11 @@ function initRotationModal() {
 }
 
 function updateNextTrackVisuals() {
+    // Si no hay una pista elegida manualmente, recalculamos dinámicamente cuál será la siguiente
+    // basándonos en el estado actual del modo bucle (Loop List).
+    if (currentPlayingRow && (!queuedNextRow || queuedNextRow.dataset.manualNext !== "true")) {
+        queuedNextRow = resolveNextOperationalRow(currentPlayingRow.nextElementSibling, generalPrefs.modeLoopPlaylist);
+    }
     let visualNextRow = resolvePriorityNextRow(queuedNextRow);
     const allRows = document.querySelectorAll('#playlist-table tr');
     allRows.forEach(row => row.classList.remove('row-next'));
@@ -7101,6 +7211,16 @@ ipcRenderer.on('settings-updated', () => {
     if (currentPlayingRow && currentPlayingRow.dataset && currentPlayingRow.dataset.ruta) {
         currentTrackConfig = getCrossfadeConfig(getTrackTypeData(currentPlayingRow.dataset.ruta), currentPlayingRow.dataset.ruta);
     }
+    const btnModeLoop = document.getElementById('btn-mode-looplist');
+    if (btnModeLoop) btnModeLoop.classList.toggle('active-loop', generalPrefs.modeLoopPlaylist);
+
+    const btnModeRemove = document.getElementById('btn-mode-remove');
+    if (btnModeRemove) btnModeRemove.classList.toggle('active-remove', generalPrefs.modeRemovePlayed);
+
+    const btnModeRepeat = document.getElementById('btn-mode-repeat');
+    if (btnModeRepeat) btnModeRepeat.classList.toggle('active-repeat', generalPrefs.modeRepeatTrack);
+
+    updateNextTrackVisuals();
 });
 
 let lastLeftPeak = 0; let lastRightPeak = 0; let isJinglePlaying = false;
@@ -7420,19 +7540,14 @@ function handleTimeUpdate(player) {
 
     const finActivo = parseFiniteCueValue(activePlayerMeta?.playbackEndAbsolute);
 
+    if (crossfadeTriggered && finActivo !== null && elapsed < finActivo) {
+        crossfadeTriggered = false;
+    }
+
     if (finActivo !== null && getPlayerClockTime(activePlayer) >= finActivo && !crossfadeTriggered) {
         crossfadeTriggered = true;
         if (generalPrefs.modeRepeatTrack) {
-            if (isRustVirtualPlayer(activePlayer)) {
-                seekRustVirtualPlayback(startOffset);
-                sendRustOwnerPlayActive();
-            } else {
-                activePlayer.currentTime = startOffset;
-                activePlayer.play();
-            }
-            currentFiredDrops = [];
             crossfadeTriggered = false;
-            recalcEndTime();
             return;
         }
         if (stopAfterCurrent) { stopAfterCurrent = false; const btn = document.getElementById('btn-stop-after'); if (btn) { btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = ''; } stopAll(); return; }
@@ -7581,15 +7696,7 @@ function handleEnded(player) {
         if (isPlaylistTimeActive) return;
         if (player === activePlayer && !crossfadeTriggered) {
             if (generalPrefs.modeRepeatTrack) {
-                if (isRustVirtualPlayer(activePlayer)) {
-                    seekRustVirtualPlayback(currentStartTimeOffset);
-                    sendRustOwnerPlayActive();
-                } else {
-                    activePlayer.currentTime = currentStartTimeOffset;
-                    activePlayer.play();
-                }
-                currentFiredDrops = [];
-                recalcEndTime();
+                syncRustRepeatTrackMode({ enabled: true });
                 return;
             }
             if (stopAfterCurrent) { stopAfterCurrent = false; const btn = document.getElementById('btn-stop-after'); if (btn) { btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = ''; } stopAll(); return; }
@@ -7715,6 +7822,7 @@ if (panelAire) {
     function commitActiveSeek(targetTimeSeconds) {
         const safeTargetSeconds = Math.max(0, Number(targetTimeSeconds) || 0);
         const positionMs = Math.max(0, Math.round(safeTargetSeconds * 1000));
+        markExpectedPlaybackPositionJump('manual-seek', safeTargetSeconds);
 
         // Migración a Rust como única fuente de verdad para el seek. Ya NO
         // tocamos `activePlayer.currentTime` (el <audio> HTML está silenciado
@@ -8668,6 +8776,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
                 if (currentSessionId !== playRowSessionId || nextPlayer !== activePlayer) return;
                 if (!playResult?.ok) throw new Error(playResult?.error || 'Rust no pudo reproducir la pista.');
                 setRustPlaylistMirrorGain(nextPlayerId, rustStartGain, { status: 'playing' });
+                syncRustRepeatTrackMode({ player: nextPlayerId, enabled: generalPrefs.modeRepeatTrack });
                 if (nextAuxPlayerId && rustPlaylistMirrorState.has(nextAuxPlayerId)) {
                     commandRustControlPlane('play', { player: nextAuxPlayerId }).catch(() => { });
                     setRustPlaylistMirrorGain(nextAuxPlayerId, rustStartGain, { status: 'playing' });

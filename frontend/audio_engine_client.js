@@ -10,6 +10,7 @@ const AUDIO_ENGINE_COMMANDS = Object.freeze([
     'fx',
     'nowPlaying',
     'transport',
+    'repeat',
     'cartwallPlay',
     'cartwallStop',
     'startEncoder',
@@ -192,6 +193,13 @@ class RustAudioEngineAdapter {
                     mixPhase: payload.mixPhase || '',
                     mixDirection: payload.mixDirection || '',
                     mixReferencePlayer: payload.mixReferencePlayer || payload.player || ''
+                };
+            case 'repeat':
+                return {
+                    cmd: 'repeat',
+                    player,
+                    enabled: payload.enabled === true,
+                    startMs: payload.startMs ?? payload.positionMs ?? 0
                 };
             case 'load':
                 return {
