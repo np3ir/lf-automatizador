@@ -64,8 +64,6 @@ ROOT_FILES=(
     "POR_HACER.md"
     "README.md"
     "database.js"
-    "hidden_analyzer.html"
-    "hidden_analyzer.js"
     "main.js"
     "package.json"
     "package-lock.json"

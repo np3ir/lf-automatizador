@@ -94,10 +94,7 @@ class RustAudioEngineProbe {
     }
 
     isRoutineStatusMessage(message = {}) {
-        return message?.type === 'status'
-            && Array.isArray(message.players)
-            && message.players.length > 0
-            && message.players.every(player => player?.gain === 0 || player?.status === 'stopped');
+        return message?.type === 'status';
     }
 
     rotateReportIfNeeded() {
