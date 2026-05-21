@@ -324,7 +324,7 @@
 
     <div class="enc-tabs">
         <button id="tab-btn-status" class="tab-btn enc-tab active">&#128225; Estado y Logs</button>
-        <button id="tab-btn-config" class="tab-btn enc-tab">&#9881; Configuracion</button>
+        <button id="tab-btn-config" class="tab-btn enc-tab">&#9881; Configuraci&oacute;n</button>
     </div>
 
     <div id="tab-status" class="enc-pane active">
@@ -350,7 +350,7 @@
             </div>
         </div>
 
-        <p style="margin: 15px 0 5px 0; font-size: 11px; color: #888; font-weight: bold;">Registro de EmisiÃ³n (Log):</p>
+        <p style="margin: 15px 0 5px 0; font-size: 11px; color: #888; font-weight: bold;">Registro de Emisi&oacute;n (Log):</p>
         <div class="enc-log-box" id="enc-log"></div>
     </div>
 
@@ -361,13 +361,13 @@
                 <label>Tipo Servidor:</label>
                 <select id="enc-type" class="enc-input dark-select">
                     <option value="icecast">Icecast (ZenoRadio, Listen2MyRadio)</option>
-                    <option value="shoutcast">Shoutcast (ClÃ¡sico)</option>
+                    <option value="shoutcast">Shoutcast (Cl&aacute;sico)</option>
                 </select>
             </div>
             <div class="row">
                 <label>Motor de Audio:</label>
                 <select id="sel-encoder-provider" class="enc-input">
-                    <option value="auto">Automatico / Motor Rust</option>
+                    <option value="auto">Autom&aacute;tico / Motor Rust</option>
                     <option value="rust">Motor Rust</option>
                 </select>
             </div>
@@ -387,7 +387,7 @@
                 <input type="text" id="enc-port" class="enc-input" placeholder="ej. 80">
             </div>
             <div class="row">
-                <label>ContraseÃ±a:</label>
+                <label>Contrase&ntilde;a:</label>
                 <input type="password" id="enc-pass" class="enc-input" placeholder="Mountpass (Zeno) o Password">
             </div>
             <div class="row" id="row-mount">
@@ -401,18 +401,18 @@
             <div class="row">
                 <label>Origen de Audio:</label>
                 <select id="enc-source" class="enc-input dark-select">
-                    <option value="master">ðŸ’» Mezcla Interna (Master PC)</option>
-                    <option value="mic">ðŸŽ¤ Entrada Externa (Consola de Audio/Mic)</option>
+                    <option value="master">&#128187; Mezcla Interna (Master PC)</option>
+                    <option value="mic">&#127908; Entrada Externa (Consola de Audio/Mic)</option>
                 </select>
             </div>
             <div class="row" id="row-mic" style="display: none;">
-                <label>Tarjeta / LÃ­nea:</label>
+                <label>Tarjeta / L&iacute;nea:</label>
                 <select id="enc-mic" class="enc-input dark-select"></select>
             </div>
             <div class="row">
                 <label>Formato (Codec):</label>
                 <select id="enc-codec" class="enc-input dark-select">
-                    <option value="mp3" selected>MP3 (Universal/ClÃ¡sico)</option>
+                    <option value="mp3" selected>MP3 (Universal/Cl&aacute;sico)</option>
                     <option value="aac">AAC (Alta eficiencia, ZenoRadio)</option>
                 </select>
             </div>
@@ -420,7 +420,7 @@
                 <label>Calidad (Bitrate):</label>
                 <select id="enc-bitrate" class="enc-input dark-select">
                     <option value="64">64 kbps (Bajo consumo)</option>
-                    <option value="128" selected>128 kbps (Recomendado/EstÃ¡ndar)</option>
+                    <option value="128" selected>128 kbps (Recomendado/Est&aacute;ndar)</option>
                     <option value="192">192 kbps (Alta Calidad)</option>
                     <option value="320">320 kbps (Estudio/HD)</option>
                 </select>
@@ -429,7 +429,7 @@
     </div>
 
     <div class="footer-bar" style="margin-top: 50px;">
-        <button id="btn-connect" class="enc-btn">ðŸ“¡ CONECTAR SERVIDOR</button>
+        <button id="btn-connect" class="enc-btn">&#128225; CONECTAR SERVIDOR</button>
     </div>
 
     <script src="encoder.js"></script>

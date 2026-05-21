@@ -24,28 +24,27 @@ module.exports = function(context) {
 
     function getRustPcmReadiness() {
         const encoder = context.rustAudioEngine?.lastStatus?.encoder || {};
-        const ready = encoder.pcmBridgeReady === true
+        const nativeTapReady = !!(
+            context.rustAudioEngine?.isRunning?.()
+            && typeof context.rustAudioEngine?.attachPcmConsumer === 'function'
+        );
+        const ready = nativeTapReady
+            || encoder.pcmBridgeReady === true
             || (encoder.rustPcmReady === true
                 && (encoder.owner === 'rustAudioEngine' || encoder.captureProvider === 'rustAudioEngine'));
         return {
             ready,
             reason: ready ? '' : (encoder.pcmBridgeReason || encoder.fallbackReason || 'rust-master-pcm-pending'),
-            bridgeMode: encoder.pcmBridgeMode || 'planned',
+            bridgeMode: nativeTapReady ? 'native-tap' : (encoder.pcmBridgeMode || 'planned'),
             captureFormat: encoder.captureFormat || 'pcm_s16le',
             sampleRate: Number(encoder.sampleRate) || 44100,
-            transport: encoder.transport || 'ffmpeg'
+            transport: nativeTapReady ? 'ffmpeg-rust-pcm-tap' : (encoder.transport || 'ffmpeg-rust-pcm-tap')
         };
     }
 
-    function resolveEncoderProvider(value, isMaster) {
-        const normalized = String(value || 'auto').trim();
-        const lower = normalized.toLowerCase();
+    function resolveEncoderProvider(_value, isMaster) {
         if (!isMaster) return 'mediaInputRenderer';
-        if (readAudioEngineMode() === 'rustAudio') return 'rustAudioEngine';
-        if (['rust', 'rustaudio', 'rustaudioengine'].includes(lower)) return 'rustAudioEngine';
-        if (['webaudio', 'webaudiorenderer'].includes(lower)) return 'webAudioRenderer';
-        if (lower === 'auto' && readAudioEngineMode() === 'rustAudio') return 'rustAudioEngine';
-        return 'webAudioRenderer';
+        return 'rustAudioEngine';
     }
 
     function buildEncoderSourceContract(config = {}, active = false) {
@@ -53,18 +52,16 @@ module.exports = function(context) {
         const isMaster = normalized.source !== 'mic';
         const requestedOwner = resolveEncoderProvider(normalized.encoderProvider, isMaster);
         const rustPcm = getRustPcmReadiness();
-        const liveRustBridgeReady = requestedOwner === 'rustAudioEngine' && isMaster;
-        const rustPcmReady = requestedOwner === 'rustAudioEngine' && (rustPcm.ready || liveRustBridgeReady);
-        const owner = requestedOwner === 'rustAudioEngine' && !rustPcmReady
-            ? 'webAudioRenderer'
-            : requestedOwner;
-        const fallbackReason = requestedOwner !== owner
-            ? rustPcm.reason
-            : '';
-        const pcmBridgeMode = rustPcm.ready ? rustPcm.bridgeMode : (liveRustBridgeReady ? 'experimental-live-mix' : rustPcm.bridgeMode);
-        const pcmBridgeReason = rustPcm.ready ? rustPcm.reason : (liveRustBridgeReady ? '' : rustPcm.reason);
-        const transport = rustPcmReady
-            ? (rustPcm.transport && rustPcm.transport !== 'ffmpeg' ? rustPcm.transport : 'ffmpeg-rust-pcm-bridge')
+        const explicitRustReady = config.pcmBridgeReady === true
+            || config.rustPcmReady === true
+            || config.transport === 'ffmpeg-rust-pcm-tap';
+        const rustPcmReady = isMaster && requestedOwner === 'rustAudioEngine' && (explicitRustReady || rustPcm.ready);
+        const owner = isMaster ? 'rustAudioEngine' : 'mediaInputRenderer';
+        const fallbackReason = isMaster && !rustPcmReady ? rustPcm.reason : '';
+        const pcmBridgeMode = isMaster ? (config.pcmBridgeMode || rustPcm.bridgeMode) : '';
+        const pcmBridgeReason = isMaster && !rustPcmReady ? rustPcm.reason : '';
+        const transport = isMaster
+            ? (config.transport || rustPcm.transport || 'ffmpeg-rust-pcm-tap')
             : 'ffmpeg';
         return {
             active: !!active,
@@ -79,8 +76,8 @@ module.exports = function(context) {
             pcmBridgeMode,
             pcmBridgeReason,
             fallbackReason,
-            captureFormat: config.captureFormat || context.encoderSourceContract?.captureFormat || (isMaster ? 'pcm_s16le' : 'webm-opus'),
-            sampleRate: Number(config.sampleRate) || Number(context.encoderSourceContract?.sampleRate) || (isMaster ? rustPcm.sampleRate : 0),
+            captureFormat: config.captureFormat || (isMaster ? 'pcm_s16le' : 'webm-opus'),
+            sampleRate: Number(config.sampleRate) || (isMaster ? rustPcm.sampleRate : 0),
             transport
         };
     }
@@ -228,8 +225,8 @@ module.exports = function(context) {
             stats.inputSilenceSuppressed = false;
             stats.inputSilentSummaryLogCount = 0;
             stats.inputSilentSummarySuppressed = false;
-            context.rustPcmSilenceFallbackLogCount = 0;
-            context.rustPcmSilenceFallbackSuppressed = false;
+            context.rustPcmSilenceAlertLogCount = 0;
+            context.rustPcmSilenceAlertSuppressed = false;
         } else {
             stats.inputSilentMs = stats.lastInputSignalAt ? now - stats.lastInputSignalAt : now - stats.startedAt;
         }
@@ -392,7 +389,7 @@ module.exports = function(context) {
             if (context.encoderWriteStats && Date.now() - context.encoderWriteStats.lastSummaryAt > 60000) {
                 logEncoderWriteStats('minute');
             }
-            maybeFallbackRustPcmSilence(source);
+            reportRustPcmSilence(source);
             return true;
         } catch (err) {
             if (context.encoderWriteStats) context.encoderWriteStats.errors++;
@@ -536,43 +533,7 @@ module.exports = function(context) {
         return { success: true };
     }
 
-    function buildWebAudioEncoderFallbackConfig(reason = 'rust-pcm-live-fallback') {
-        return {
-            ...(context.activeEncoderConfig || context.encoderSourceContract || {}),
-            source: 'master',
-            owner: 'webAudioRenderer',
-            requestedOwner: 'rustAudioEngine',
-            captureProvider: 'webAudioRenderer',
-            rustPcmReady: false,
-            pcmBridgeReady: false,
-            fallbackReason: reason,
-            captureFormat: 'pcm_s16le',
-            transport: 'ffmpeg'
-        };
-    }
-
-    function startWebAudioEncoderFallback(reason = 'rust-pcm-live-fallback', details = {}) {
-        if (readAudioEngineMode() === 'rustAudio') {
-            writeLog(`Rust PCM encoder fallback bloqueado por modo Rust exclusivo: ${reason}. Detalle=${JSON.stringify(details || {})}`);
-            return { success: false, blocked: true, error: reason };
-        }
-        if (context.encoderSourceContract?.captureProvider === 'webAudioRenderer') return { success: true, alreadyFallback: true };
-        const fallback = buildWebAudioEncoderFallbackConfig(reason);
-        writeLog(`Rust PCM encoder fallback a WebAudio: ${reason}. Detalle=${JSON.stringify(details || {})}`);
-        context.suppressNextFfmpegCloseSideEffects = Date.now() + 5000;
-        killFfmpegProcess('', {
-            suppressStatus: true,
-            suppressStopCapture: true,
-            suppressError: true
-        });
-        context.encoderSourceContract = { ...(context.encoderSourceContract || {}), ...fallback, active: false };
-        setTimeout(() => {
-            startRendererEncoderCapture(fallback);
-        }, 150);
-        return { success: true };
-    }
-
-    function maybeFallbackRustPcmSilence(source = '') {
+    function reportRustPcmSilence(source = '') {
         if (source !== 'rust-pcm') return;
         const stats = context.encoderWriteStats;
         const engine = context.rustAudioEngine;
@@ -583,36 +544,34 @@ module.exports = function(context) {
         if ((Date.now() - (stats.startedAt || Date.now())) < 12000) return;
         const silentMs = Number(stats.inputSilentMs) || 0;
         if (silentMs < 12000) return;
-        if (context.lastRustPcmSilenceFallbackAt && Date.now() - context.lastRustPcmSilenceFallbackAt < 60000) return;
-        context.lastRustPcmSilenceFallbackAt = Date.now();
+        if (context.lastRustPcmSilenceAlertAt && Date.now() - context.lastRustPcmSilenceAlertAt < 60000) return;
+        context.lastRustPcmSilenceAlertAt = Date.now();
         const rustStatus = tapActive
             ? { tap: true, running: engine.isRunning(), activePlayers: null }
             : (context.rustPcmEncoderSource?.status?.() || {});
-        context.rustPcmSilenceFallbackLogCount = (context.rustPcmSilenceFallbackLogCount || 0) + 1;
-        if (context.rustPcmSilenceFallbackLogCount > 3) {
-            if (!context.rustPcmSilenceFallbackSuppressed) {
-                context.rustPcmSilenceFallbackSuppressed = true;
-                writeLog('Rust PCM encoder fallback por silencio: se silencian avisos repetidos hasta recuperar audio.');
+        context.rustPcmSilenceAlertLogCount = (context.rustPcmSilenceAlertLogCount || 0) + 1;
+        if (context.rustPcmSilenceAlertLogCount > 3) {
+            if (!context.rustPcmSilenceAlertSuppressed) {
+                context.rustPcmSilenceAlertSuppressed = true;
+                writeLog('Rust PCM encoder sin senal persistente: se silencian avisos repetidos hasta recuperar audio.');
             }
             return;
         }
-        startWebAudioEncoderFallback(
-            (Number(rustStatus.activePlayers) || 0) > 0
-                ? 'rust-pcm-silent-with-active-players'
-                : 'rust-pcm-silent-no-live-players',
-            {
-                silentMs,
-                tapMode: tapActive,
-                activePlayers: rustStatus.activePlayers,
-                stdoutBytes: rustStatus.stdoutBytes,
-                stdoutChunks: rustStatus.stdoutChunks,
-                players: rustStatus.players
-            }
-        );
+        const reason = (Number(rustStatus.activePlayers) || 0) > 0
+            ? 'rust-pcm-silent-with-active-players'
+            : 'rust-pcm-silent-no-live-players';
+        writeLog(`Rust PCM encoder sin senal: ${reason}. Detalle=${JSON.stringify({
+            silentMs,
+            tapMode: tapActive,
+            activePlayers: rustStatus.activePlayers,
+            stdoutBytes: rustStatus.stdoutBytes,
+            stdoutChunks: rustStatus.stdoutChunks,
+            players: rustStatus.players
+        })}`);
     }
 
     function startEncoderCapture(config) {
-        if (config.captureProvider === 'rustAudioEngine' && config.pcmBridgeReady === true) {
+        if ((config.source || 'master') === 'master' && (config.captureProvider === 'rustAudioEngine' || config.owner === 'rustAudioEngine' || config.requestedOwner === 'rustAudioEngine')) {
             const started = startRustPcmEncoderCapture(config);
             if (started.success) return;
             if (readAudioEngineMode() === 'rustAudio') {
@@ -621,26 +580,29 @@ module.exports = function(context) {
                 if (context.encoderWindow) context.encoderWindow.webContents.send('encoder-error', started.error || 'Rust PCM encoder no inicio.');
                 return;
             }
-            writeLog(`Rust PCM encoder no inicio (${started.error || 'sin detalle'}). Usando fallback WebAudio.`);
-        }
-        if ((config.source || 'master') === 'master' && readAudioEngineMode() === 'rustAudio') {
-            writeLog('Encoder master bloqueado: WebAudio no participa en modo Rust.');
+            writeLog(`Rust PCM encoder no inicio (${started.error || 'sin detalle'}). Ruta WebAudio master retirada: no se activa ruta alternativa.`);
             setEncoderStatus('disconnected');
-            if (context.encoderWindow) context.encoderWindow.webContents.send('encoder-error', 'El encoder master usa solo Rust en modo Rust.');
+            if (context.encoderWindow) context.encoderWindow.webContents.send('encoder-error', started.error || 'Rust PCM encoder no inicio y la ruta WebAudio master fue retirada.');
             return;
         }
-        const fallback = config.captureProvider === 'rustAudioEngine'
+        if ((config.source || 'master') === 'master') {
+            writeLog('Encoder master bloqueado: el master ya no usa captura WebAudio del renderer.');
+            setEncoderStatus('disconnected');
+            if (context.encoderWindow) context.encoderWindow.webContents.send('encoder-error', 'El encoder master requiere Rust PCM tap; la captura WebAudio fue retirada.');
+            return;
+        }
+        const rendererCapture = config.captureProvider === 'rustAudioEngine'
             ? {
                 ...config,
-                owner: 'webAudioRenderer',
-                captureProvider: 'webAudioRenderer',
+                owner: 'mediaInputRenderer',
+                captureProvider: 'mediaInputRenderer',
                 rustPcmReady: false,
                 pcmBridgeReady: false,
-                fallbackReason: config.fallbackReason || 'rust-pcm-live-fallback'
+                fallbackReason: ''
             }
             : config;
-        context.encoderSourceContract = { ...(context.encoderSourceContract || {}), ...fallback, active: false };
-        startRendererEncoderCapture(fallback);
+        context.encoderSourceContract = { ...(context.encoderSourceContract || {}), ...rendererCapture, active: false };
+        startRendererEncoderCapture(rendererCapture);
     }
 
     ipcMain.handle('dialog:openFile', async (event) => { 
@@ -671,17 +633,6 @@ module.exports = function(context) {
     // FASE D · sub-paso 8.2 — En modo tap nativo, el motor Rust maneja su
     // propio mapa de players internamente. El antiguo `syncPlayers` del lado
     // JS era para el `RustPcmBridgeEncoderSource` muerto; ahora es noop.
-    ipcMain.handle('rust-pcm-encoder-sync', async () => {
-        if (!context.rustPcmEncoderSource) {
-            return { success: false, running: false, error: 'Rust PCM encoder source no iniciado.' };
-        }
-        return {
-            success: true,
-            running: context.rustPcmEncoderSource.isRunning?.() === true,
-            tap: true
-        };
-    });
-
     ipcMain.handle('rust-pcm-encoder-status', async () => {
         return context.rustPcmEncoderSource?.status?.() || { running: false };
     });
@@ -799,10 +750,6 @@ module.exports = function(context) {
         const resolved = { ...normalized, ...contract };
         context.encoderSourceContract = { ...(context.encoderSourceContract || {}), ...contract, active: false };
         startEncoderCapture(resolved);
-    });
-
-    ipcMain.on('encoder-request-webaudio-fallback', (e, payload = {}) => {
-        startWebAudioEncoderFallback(payload.reason || 'renderer-requested-rust-pcm-fallback', payload);
     });
 
     // FIX: el operador conmutó Pre-FX / Post-FX desde la ventana del encoder.

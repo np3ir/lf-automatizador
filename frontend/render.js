@@ -9,6 +9,14 @@ const path = require('path');
 const os = require('os');
 const url = require('url');
 const { ipcRenderer, webUtils } = require('electron');
+
+// --- LOG DIAGNÓSTICO TEMPORAL ---
+const PLOG_FILE = path.join(__dirname, '..', 'config', 'playlist_debug.log');
+try { fs.writeFileSync(PLOG_FILE, `=== SESIÓN ${new Date().toISOString()} ===\n`); } catch(e) {}
+function plog(msg) {
+    try { fs.appendFileSync(PLOG_FILE, `[${new Date().toISOString()}] ${msg}\n`); } catch(e) {}
+}
+// --- FIN LOG ---
 const { normalizeAudioPrefs } = require('./audio_prefs');
 const { AudioEngineClient, RustAudioEngineAdapter } = require('./audio_engine_client');
 
@@ -597,9 +605,12 @@ function syncRustPlaylistMode() {
 }
 
 function syncRustPlaylistPlaybackContext(playerIdOverride = null) {
+    const _syncPlayer = playerIdOverride || activeRustPlaylistDeckId || getPlaylistPlayerId(activePlayer);
+    const _syncRow = currentPlayingRow?.dataset?.pureName || currentPlayingRow?.children?.[1]?.innerText || '(sin fila)';
+    plog(`syncContext → currentPlayer="${_syncPlayer}" (override=${playerIdOverride||'-'} activeDeck=${activeRustPlaylistDeckId||'-'} dom=${getPlaylistPlayerId(activePlayer)||'-'}) row="${_syncRow}"`);
     commandRustControlPlane('playlistPlaybackContext', {
         currentRowId: currentPlayingRow ? ensurePlaylistRowId(currentPlayingRow) : '',
-        currentPlayer: playerIdOverride || activeRustPlaylistDeckId || getPlaylistPlayerId(activePlayer),
+        currentPlayer: _syncPlayer,
         queuedRowId: queuedNextRow ? ensurePlaylistRowId(queuedNextRow) : '',
         pgmTab
     }).catch(() => {});
@@ -610,9 +621,14 @@ function notifyRustPlaylistFinished(reason = 'finish') {
     if (reason === 'mix') {
         rustPlaylistAutoMixPendingUntil = Date.now() + 5000;
     }
+    const _nfRow = currentPlayingRow?.dataset?.pureName || currentPlayingRow?.children?.[1]?.innerText || '?';
+    const _nfPlayer = rustTimeLocutionContext?.kind === 'playlist' && rustTimeLocutionContext.playerId
+        ? rustTimeLocutionContext.playerId
+        : getPlaylistPlayerId(activePlayer);
+    plog(`notifyFinished reason="${reason}" currentPlayer="${_nfPlayer}" activeDeck="${activeRustPlaylistDeckId}" row="${_nfRow}"`);
     commandRustControlPlane('playlistFinished', {
         currentRowId: ensurePlaylistRowId(currentPlayingRow),
-        currentPlayer: getPlaylistPlayerId(activePlayer),
+        currentPlayer: _nfPlayer,
         queuedRowId: queuedNextRow ? ensurePlaylistRowId(queuedNextRow) : '',
         pgmTab
     }).catch(() => {});
@@ -642,6 +658,8 @@ function removePlaylistRowById(rowId = '') {
 function handleRustPlaylistAction(message = {}) {
     const action = message.action || '';
     const rowId = message.rowId || '';
+    const _hrCurRow = currentPlayingRow?.dataset?.pureName || currentPlayingRow?.children?.[1]?.innerText || '(ninguna)';
+    plog(`handleRustAction action="${action}" rowId="${rowId}" currentActiveDeck="${activeRustPlaylistDeckId}" currentRow="${_hrCurRow}"`);
     if (action === 'removeRow') {
         removePlaylistRowById(rowId);
         return;
@@ -666,6 +684,8 @@ function handleRustPlaylistAction(message = {}) {
     if (action === 'playRow') {
         const isAutoMix = Date.now() < rustPlaylistAutoMixPendingUntil;
         rustPlaylistAutoMixPendingUntil = 0;
+        const _targetRow = row?.dataset?.pureName || row?.children?.[1]?.innerText || rowId;
+        plog(`handleRustAction playRow isAutoMix=${isAutoMix} targetRow="${_targetRow}"`);
         playRow(row, isAutoMix, 0, { startCause: isAutoMix ? 'rust-playlist-automix' : 'rust-playlist' });
     }
 }
@@ -1490,11 +1510,14 @@ function reserveRustPlaylistDeckId() {
         const busy = state && state.status !== 'stopped' && tailUntil > now;
         if (!busy) {
             rustPlaylistDeckCursor = (idx + 1) % RUST_PLAYLIST_DECK_IDS.length;
+            const _estados = RUST_PLAYLIST_DECK_IDS.map(id => { const st = rustPlaylistMirrorState.get(id); const tu = Number(st?.tailUntil)||0; return `${id}:${st?.status||'none'}(tail+${Math.max(0,tu-now)}ms)`; }).join(' | ');
+            plog(`reserveDeck → ASIGNADO "${playerId}" | estados: ${_estados}`);
             return playerId;
         }
     }
     const fallback = RUST_PLAYLIST_DECK_IDS[rustPlaylistDeckCursor % RUST_PLAYLIST_DECK_IDS.length];
     rustPlaylistDeckCursor = (rustPlaylistDeckCursor + 1) % RUST_PLAYLIST_DECK_IDS.length;
+    plog(`reserveDeck → FALLBACK "${fallback}" (todos ocupados)`);
     return fallback;
 }
 
@@ -2271,8 +2294,7 @@ function haltPlaybackOnFatalError(message, options = {}) {
     crossfadeTriggered = false;
     isPlaylistTimeActive = false;
     if (rustTimeLocutionContext) {
-        commandRustControlPlane('stop', { player: 'time-locucion' }).catch(() => {});
-        rustTimeLocutionContext = null;
+        stopActiveRustTimeLocution();
     }
     stopRustVirtualPlayback();
     [playerA, playerB].forEach(player => {
@@ -2796,6 +2818,12 @@ let isPlaylistTimeActive = false;
 //                      rezagados que correspondan a una sesión vieja
 //   row              → fila de playlist asociada (solo kind='playlist')
 let rustTimeLocutionContext = null;
+
+function stopActiveRustTimeLocution() {
+    const playerId = rustTimeLocutionContext?.playerId || 'time-locucion';
+    if (playerId) commandRustControlPlane('stop', { player: playerId }).catch(() => {});
+    rustTimeLocutionContext = null;
+}
 
 let isTrackReady = false;
 let lastProgramPeakPercent = 0;
@@ -8146,7 +8174,7 @@ async function playTimeLocutionViaRust() {
     if (!folder || !fs.existsSync(folder)) return;
     isJinglePlaying = true;
     beginProgramOverlayDucking();
-    rustTimeLocutionContext = { kind: 'button' };
+    rustTimeLocutionContext = { kind: 'button', playerId: 'time-locucion' };
     const result = await commandRustControlPlane('timeLocution', {
         folder,
         bus: 'jingle',
@@ -8816,12 +8844,10 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
 
         const type = tr.dataset.type || 'normal'; isPlaylistTimeActive = false;
         // Si quedaba alguna locución horaria activa de la fila previa, se la
-        // detenemos al motor Rust antes de pisar el contexto. El motor responde
-        // al `stop` invalidando su contador de generación → el timer interno
-        // no emitirá un `timeLocutionEnded` rezagado.
+        // detenemos al motor Rust antes de pisar el contexto. Usamos el player
+        // real del contexto, porque en playlist puede ser un deck de programa.
         if (rustTimeLocutionContext) {
-            commandRustControlPlane('stop', { player: 'time-locucion' }).catch(() => {});
-            rustTimeLocutionContext = null;
+            stopActiveRustTimeLocution();
         }
         currentStartTimeOffset = 0; currentFiredDrops = []; lastOverlayEvalSessionId = currentSessionId; lastOverlayEvalElapsed = 0; let manualFin = null;
         const savedResumeStart = parseFloat(tr.dataset.resumeStart || '');
@@ -8836,8 +8862,10 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
             //      devuelve el motor.
             //   4) Escucha `timeLocutionEnded` (listener IPC al final del
             //      archivo) para avanzar la playlist.
+            plog(`[HORA] playRow type=time iniciando | rustDeck="${currentRustPlayerId}" sessionId=${playRowSessionId}`);
             const folder = generalPrefs.timeFolder;
-            if (!folder || !fs.existsSync(folder)) { 
+            if (!folder || !fs.existsSync(folder)) {
+                plog(`[HORA] ERROR: carpeta de hora no existe → saltando`);
                 logSystem(`[SKIP] La carpeta de Hora no existe. Saltando...`);
                 setTimeout(() => playNext(false), 500);
                 return; 
@@ -8916,6 +8944,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
             // pista funcionan igual que con cualquier otro audio del programa.
             const timePlaylistPlayerId = getPlaylistPlayerId(activePlayer); // 'player-a' o 'player-b'
             const timePlaylistBus = getRustPlaylistPrimaryBus(tr);            // 'pl1'..'pl4'
+            plog(`[HORA] timePlaylistPlayerId="${timePlaylistPlayerId}" bus="${timePlaylistBus}" rustDeck="${currentRustPlayerId}" sessionId=${playRowSessionId}`);
 
             // currentTrackConfig YA viene de getCrossfadeConfig(saytime) — respeta
             // los ajustes generales del tipo "saytime" (fade-out, mix-trigger, amp).
@@ -8934,16 +8963,22 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
             // el id virtual y los flags de transporte.
             try { activePlayer.pause(); activePlayer.currentTime = 0; activePlayer.removeAttribute('src'); activePlayer.load(); } catch (err) {}
 
+            plog(`[HORA] enviando timeLocution { player="${timePlaylistPlayerId}", bus="${timePlaylistBus}" } sessionId=${playRowSessionId}`);
             const result = await commandRustControlPlane('timeLocution', {
                 player: timePlaylistPlayerId,
                 bus: timePlaylistBus,
                 folder,
                 gain: dbToLinear(currentTrackConfig.ampDb)
             });
-            if (currentSessionId !== playRowSessionId) return;
+            plog(`[HORA] timeLocution respondió ok=${result?.ok} error="${result?.error||''}" sessionId=${playRowSessionId} currentSessionId=${currentSessionId}`);
+            if (currentSessionId !== playRowSessionId) {
+                plog(`[HORA] ABORTADO por cambio de sesión (${currentSessionId} !== ${playRowSessionId})`);
+                return;
+            }
             if (!result?.ok) {
                 rustTimeLocutionContext = null;
                 isPlaylistTimeActive = false;
+                plog(`[HORA] ERROR de Rust: ${result?.error||'sin detalle'} → saltando`);
                 logSystem(`[SKIP] Rust no pudo lanzar la locucion de hora: ${result?.error || 'sin detalle'}. Saltando...`);
                 setTimeout(() => playNext(false), 500);
                 return;
@@ -8968,7 +9003,8 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
                 mixAbsolute: null,
                 playbackEndAbsolute: timePlaybackEnd,
                 naturalEndAbsolute: timePlaybackEnd,
-                startOffset: 0
+                startOffset: 0,
+                rustPlayerId: timePlaylistPlayerId
             });
 
             // Activar el reloj virtual sobre el player asignado para que
@@ -8994,6 +9030,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
             publishRustTransport({ force: true, syncPosition: false });
 
             calcularHorasPlaylist(); updateNextTrackVisuals();
+            plog(`[HORA] locucion activa OK: dur=${(durationMs/1000).toFixed(1)}s segs=${segments} player="${timePlaylistPlayerId}" bus="${timePlaylistBus}" isPlaylistTimeActive=${isPlaylistTimeActive}`);
             logSystem(`${ICON_AIR_PREFIX} ${ICON_CLOCK_LABEL} (Rust, ${segments} archivo(s), ${(durationMs/1000).toFixed(1)}s, bus=${timePlaylistBus})`);
             return;
         }
@@ -9491,12 +9528,9 @@ function stopAll() {
             ? resolveNextOperationalRow(currentPlayingRow.nextElementSibling, generalPrefs.modeLoopPlaylist)
             : null);
     try { ipcRenderer.send('emergency-stop-playback'); } catch (err) { }
-    // Asegurarse de detener también la locución horaria del bus jingle de Rust.
-    // El motor invalida su contador de generación al recibir `stop` sobre
-    // `time-locucion`, así el timer interno no emite `timeLocutionEnded` post-stop.
+    // Asegurarse de detener también cualquier locución horaria activa en Rust.
     if (rustTimeLocutionContext) {
-        commandRustControlPlane('stop', { player: 'time-locucion' }).catch(() => {});
-        rustTimeLocutionContext = null;
+        stopActiveRustTimeLocution();
     }
     cancelPendingPlayerStop(playerA);
     cancelPendingPlayerStop(playerB);
@@ -11087,10 +11121,12 @@ ipcRenderer.on('audio-engine-rust-event', (e, message) => {
     if (message.type === 'timeLocutionEnded') {
         const ctx = rustTimeLocutionContext;
         rustTimeLocutionContext = null;
+        plog(`[timeLocutionEnded] ctx.kind="${ctx?.kind||'null'}" ctx.sessionId=${ctx?.sessionId} playRowSessionId=${playRowSessionId} crossfadeTriggered=${crossfadeTriggered}`);
 
         if (!ctx) {
             // Sin contexto = ya lo cerramos por stop manual o por una nueva
             // locución; ignoramos el evento rezagado.
+            plog(`[timeLocutionEnded] SIN ctx → ignorado`);
             return;
         }
 
@@ -11099,6 +11135,7 @@ ipcRenderer.on('audio-engine-rust-event', (e, message) => {
             // simplemente liberamos los flags de ducking y "jingle sonando".
             isJinglePlaying = false;
             endProgramOverlayDucking();
+            plog(`[timeLocutionEnded] kind=button → ducking liberado`);
             return;
         }
 
@@ -11108,11 +11145,15 @@ ipcRenderer.on('audio-engine-rust-event', (e, message) => {
             // pista normal). Este evento llega como salvavidas: limpiamos los
             // flags y forzamos un repintado por si el reloj virtual quedó
             // desfasado y no detectó el fin a tiempo.
-            if (ctx.sessionId !== playRowSessionId) return;
+            if (ctx.sessionId !== playRowSessionId) {
+                plog(`[timeLocutionEnded] sessionId mismatch (${ctx.sessionId} !== ${playRowSessionId}) → ignorado`);
+                return;
+            }
             isPlaylistTimeActive = false;
             // Si por algún motivo handleTimeUpdate aún no disparó la transición
             // (canción siguiente cargada), forzamos el avance.
             if (!crossfadeTriggered && currentPlayingRow === ctx.row) {
+                plog(`[timeLocutionEnded] forzando avance (crossfadeTriggered=false) → notifyRustPlaylistFinished`);
                 if (stopAfterCurrent) {
                     stopAfterCurrent = false;
                     applyStopAfterVisualState();
@@ -11121,6 +11162,8 @@ ipcRenderer.on('audio-engine-rust-event', (e, message) => {
                 }
                 crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
                 notifyRustPlaylistFinished();
+            } else {
+                plog(`[timeLocutionEnded] avance ya disparado (crossfadeTriggered=${crossfadeTriggered} rowMatch=${currentPlayingRow === ctx.row})`);
             }
         }
     }

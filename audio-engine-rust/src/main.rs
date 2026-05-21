@@ -100,9 +100,8 @@ struct EngineState {
     encoder_source_mode: String,
     /// Generación de la locución horaria activa. Cada llamada a `timeLocution`
     /// (o un `stop` sobre el player que la sostiene) incrementa este contador.
-    /// El hilo timer encargado de emitir `timeLocutionEnded` captura el valor
-    /// al lanzarse y solo emite si al despertar sigue siendo el mismo — eso
-    /// evita que una locución cancelada o reemplazada notifique fin tardío.
+    /// Se conserva como token de invalidez para cualquier cierre tardío de una
+    /// locución reemplazada o cancelada.
     time_locution_counter: Arc<AtomicU64>,
     /// ID del player que actualmente sostiene la locución horaria (puede ser
     /// "time-locucion" cuando se lanza desde la botonera o "player-a"/"player-b"
@@ -3838,12 +3837,56 @@ fn resolve_time_locution_files(folder: &str) -> Vec<String> {
     out
 }
 
+/// Emite el fin de locución usando el estado real del `Player`. No depende de
+/// la duración reportada por metadata, porque algunos audios VBR/recortados
+/// pueden subestimar justo el segundo segmento (MINxx) y provocar avance antes
+/// de que termine de sonar.
+fn finish_time_locution_if_drained(state: &mut EngineState) {
+    let player_id = state.time_locution_player.clone();
+    if player_id.is_empty() {
+        return;
+    }
+    let drained = state.players
+        .get(&player_id)
+        .and_then(|runtime| runtime.player.as_ref())
+        .map(|player| player.empty())
+        .unwrap_or(false);
+    if !drained {
+        return;
+    }
+
+    let duration_ms = state.time_locution_total_ms;
+    let segments = state.players
+        .get(&player_id)
+        .map(|runtime| runtime.state.path.split('|').filter(|part| !part.trim().is_empty()).count())
+        .unwrap_or(0);
+
+    if let Some(runtime) = state.players.get_mut(&player_id) {
+        runtime.state.status = "ended".to_string();
+        runtime.state.position_ms = duration_ms;
+    }
+
+    state.time_locution_counter.fetch_add(1, Ordering::SeqCst);
+    state.time_locution_player.clear();
+    state.time_locution_started_at = None;
+    state.time_locution_total_ms = 0;
+
+    println!(
+        "{{\"type\":\"timeLocutionEnded\",\"engine\":\"rustAudio\",\"player\":\"{}\",\"durationMs\":{},\"segments\":{},\"updatedAt\":{}}}",
+        escape_json(&player_id),
+        duration_ms,
+        segments,
+        now_ms()
+    );
+    let _ = io::stdout().flush();
+}
+
 /// Lanza la locución horaria: crea un único `Player` en el bus indicado y
 /// encadena todos los archivos con `Player::append` (rodio los reproduce
 /// secuencialmente sin gap, garantizando orden estricto). Devuelve duración
 /// total estimada en ms y la lista de archivos efectivamente encolados.
-/// Emite el evento `timeLocutionEnded` (vía stdout) desde un hilo timer
-/// cancelable por incremento del contador de generación.
+/// El evento `timeLocutionEnded` se emite desde el tick principal cuando el
+/// `Player` realmente queda vacío.
 fn start_time_locution(
     state: &mut EngineState,
     player_id: &str,
@@ -3851,7 +3894,7 @@ fn start_time_locution(
     gain: f32,
     output_id: &str,
     bus_id: &str,
-    request_id: &str,
+    _request_id: &str,
 ) -> Result<(u64, Vec<String>), String> {
     let files = resolve_time_locution_files(folder);
     if files.is_empty() {
@@ -3917,16 +3960,16 @@ fn start_time_locution(
     runtime.state.path = files.join("|");
     runtime.state.status = "playing".to_string();
     runtime.state.position_ms = 0;
+    runtime.state.duration_ms = total_ms;
     runtime.state.gain = gain.clamp(0.0, 2.0);
     runtime.state.bus_id = bus_id.to_string();
     runtime.state.output_device_id = resolved_output_id;
     runtime.state.output_device_name = String::new();
     runtime.player = Some(player);
 
-    // Generación: incrementar y capturar para el timer. Cualquier stop sobre
-    // este player o nueva locución incrementará el contador → el timer al
-    // despertar se autocancela.
-    let new_gen = state.time_locution_counter.fetch_add(1, Ordering::SeqCst) + 1;
+    // Generación: cualquier stop sobre este player o nueva locución invalida
+    // cierres tardíos de una reproducción anterior.
+    state.time_locution_counter.fetch_add(1, Ordering::SeqCst);
     state.time_locution_player = player_id.to_string();
     // Reloj acumulativo de la pista virtual unificada (HRS + MIN).
     // El frontend recibe `positionMs = now - started_at` saturado a
@@ -3934,33 +3977,6 @@ fn start_time_locution(
     // del primer archivo al segundo dentro del mismo Player.
     state.time_locution_started_at = Some(Instant::now());
     state.time_locution_total_ms = total_ms;
-    let counter = Arc::clone(&state.time_locution_counter);
-    let total_for_timer = total_ms;
-    let request_id_owned = request_id.to_string();
-    let player_id_owned = player_id.to_string();
-    let files_count = files.len();
-    std::thread::spawn(move || {
-        // Margen pequeño para asegurar que rodio terminó de drenar el último
-        // segmento antes de notificar fin al renderer.
-        std::thread::sleep(Duration::from_millis(total_for_timer.saturating_add(120)));
-        if counter.load(Ordering::SeqCst) != new_gen {
-            return;
-        }
-        let rid_field = if request_id_owned.is_empty() {
-            String::new()
-        } else {
-            format!("\"requestId\":\"{}\",", escape_json(&request_id_owned))
-        };
-        println!(
-            "{{{}\"type\":\"timeLocutionEnded\",\"engine\":\"rustAudio\",\"player\":\"{}\",\"durationMs\":{},\"segments\":{},\"updatedAt\":{}}}",
-            rid_field,
-            escape_json(&player_id_owned),
-            total_for_timer,
-            files_count,
-            now_ms()
-        );
-        let _ = io::stdout().flush();
-    });
 
     Ok((total_ms, files))
 }
@@ -4034,6 +4050,7 @@ fn main() {
                 process_player_fades(&mut state);
                 process_repeat_players(&mut state);
                 process_playlist_end_actions(&mut state);
+                finish_time_locution_if_drained(&mut state);
                 // Push automático de status. request_id vacío → el campo no se
                 // emite y el Node probe lo trata como mensaje espontáneo.
                 emit_status(&state, "");
@@ -4336,8 +4353,7 @@ fn main() {
                     state.players.remove(&player_id);
                 }
                 // Si paran el player que actualmente sostiene la locución
-                // horaria, invalidamos la generación para que el timer en vuelo
-                // no emita `timeLocutionEnded` post-stop. Tambien limpiamos el
+                // horaria, invalidamos la generación y limpiamos el
                 // reloj acumulativo de la pista virtual (HRS+MIN unificados).
                 if !state.time_locution_player.is_empty() && player_id == state.time_locution_player {
                     state.time_locution_counter.fetch_add(1, Ordering::SeqCst);
@@ -4349,8 +4365,8 @@ fn main() {
             "timeLocution" => {
                 // Locución de hora 100% gestionada por el motor: resuelve archivos
                 // según el reloj local, encola en un único Player con `append`
-                // (rodio toca secuencial sin gap) y emite `timeLocutionEnded` al
-                // terminar. El renderer solo manda el comando y escucha el evento.
+                // (rodio toca secuencial sin gap). El tick principal emite
+                // `timeLocutionEnded` cuando el Player realmente queda vacío.
                 let folder = json_get_string(&line, "folder").unwrap_or_default();
                 let gain = json_get_f32(&line, "gain").unwrap_or(1.0);
                 let bus_id = json_get_string(&line, "bus").unwrap_or_else(|| "jingle".to_string());

@@ -69,10 +69,10 @@ function createEmptyDiagnostics(mode = 'webAudio') {
         },
             encoder: {
                 active: false,
-                source: 'renderer-pcm-ffmpeg',
-                owner: 'webAudioRenderer',
-                requestedOwner: 'webAudioRenderer',
-                captureProvider: 'webAudioRenderer',
+                source: 'master',
+                owner: 'rustAudioEngine',
+                requestedOwner: 'rustAudioEngine',
+                captureProvider: 'rustAudioEngine',
                 encoderProvider: 'auto',
                 rustPcmReady: false,
                 pcmBridgeReady: false,
@@ -81,7 +81,7 @@ function createEmptyDiagnostics(mode = 'webAudio') {
                 fallbackReason: '',
                 captureFormat: 'pcm_s16le',
                 sampleRate: 0,
-            transport: 'ffmpeg'
+            transport: 'ffmpeg-rust-pcm-tap'
         },
         warnings: [],
         updatedAt: Date.now()
@@ -290,13 +290,15 @@ class RustAudioEngineAdapter {
                     player: payload.player || payload.playerId || payload.id || 'cartwall'
                 };
             case 'startEncoder':
+                const startEncoderIsMic = (payload.source || payload.sourceBus) === 'mic';
+                const startEncoderOwner = startEncoderIsMic ? 'mediaInputRenderer' : 'rustAudioEngine';
                 return {
                     cmd: 'encoder',
                     action: 'start',
                     source: payload.source || payload.sourceBus || 'master',
-                    owner: payload.owner || 'webAudioRenderer',
-                    requestedOwner: payload.requestedOwner || payload.owner || 'webAudioRenderer',
-                    captureProvider: payload.captureProvider || payload.owner || 'webAudioRenderer',
+                    owner: payload.owner || startEncoderOwner,
+                    requestedOwner: payload.requestedOwner || payload.owner || startEncoderOwner,
+                    captureProvider: payload.captureProvider || payload.owner || startEncoderOwner,
                     encoderProvider: payload.encoderProvider || 'auto',
                     rustPcmReady: payload.rustPcmReady === true,
                     pcmBridgeReady: payload.pcmBridgeReady === true,
@@ -305,7 +307,7 @@ class RustAudioEngineAdapter {
                     fallbackReason: payload.fallbackReason || '',
                     captureFormat: payload.captureFormat || 'pcm_s16le',
                     sampleRate: payload.sampleRate || 0,
-                    transport: payload.transport || 'ffmpeg'
+                    transport: payload.transport || (startEncoderIsMic ? 'ffmpeg' : 'ffmpeg-rust-pcm-tap')
                 };
             case 'timeLocution':
                 // Locución horaria delegada 100% al motor Rust: el frontend solo
@@ -327,13 +329,15 @@ class RustAudioEngineAdapter {
             case 'monitorGain':
                 return { cmd: 'monitorGain', gain: payload.gain ?? 1.0 };
             case 'stopEncoder':
+                const stopEncoderIsMic = (payload.source || payload.sourceBus) === 'mic';
+                const stopEncoderOwner = stopEncoderIsMic ? 'mediaInputRenderer' : 'rustAudioEngine';
                 return {
                     cmd: 'encoder',
                     action: 'stop',
                     source: payload.source || payload.sourceBus || 'master',
-                    owner: payload.owner || 'webAudioRenderer',
-                    requestedOwner: payload.requestedOwner || payload.owner || 'webAudioRenderer',
-                    captureProvider: payload.captureProvider || payload.owner || 'webAudioRenderer',
+                    owner: payload.owner || stopEncoderOwner,
+                    requestedOwner: payload.requestedOwner || payload.owner || stopEncoderOwner,
+                    captureProvider: payload.captureProvider || payload.owner || stopEncoderOwner,
                     encoderProvider: payload.encoderProvider || 'auto',
                     rustPcmReady: payload.rustPcmReady === true,
                     pcmBridgeReady: payload.pcmBridgeReady === true,
@@ -342,7 +346,7 @@ class RustAudioEngineAdapter {
                     fallbackReason: payload.fallbackReason || '',
                     captureFormat: payload.captureFormat || 'pcm_s16le',
                     sampleRate: payload.sampleRate || 0,
-                    transport: payload.transport || 'ffmpeg'
+                    transport: payload.transport || (stopEncoderIsMic ? 'ffmpeg' : 'ffmpeg-rust-pcm-tap')
                 };
             default:
                 return null;

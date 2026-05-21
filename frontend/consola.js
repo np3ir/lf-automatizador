@@ -533,7 +533,7 @@ function summarizeEncoderSource(encoder = {}, rustEncoder = {}) {
     const requested = state.requestedOwner || encoder.requestedOwner || owner;
     const fallback = state.fallbackReason || encoder.fallbackReason || '';
     const bridge = state.pcmBridgeReady === false && state.requestedOwner === 'rustAudioEngine'
-        ? ` | puente ${state.pcmBridgeMode || 'planned'}`
+        ? ` | tap ${state.pcmBridgeMode || 'planned'}`
         : '';
     const provider = requested && requested !== owner
         ? ` | solicitado ${requested}${fallback ? ` -> fallback ${owner}` : ''}`
@@ -563,7 +563,7 @@ function resolveOperatorEngineState(diagnostics = {}, rustProbe = {}) {
         && (owner === 'webAudioRenderer' || captureProvider === 'webAudioRenderer');
 
     if (rustCarryingAudio) {
-        return { tone: 'rust', label: 'Motor al aire: Rust PCM bridge' };
+        return { tone: 'rust', label: 'Motor al aire: Rust PCM tap' };
     }
     if (diagnostics.runtime?.playlistOwner === 'rustAudioEngine') {
         return { tone: 'rust', label: 'Motor al aire: Rust dueño de Playlist A/B' };
@@ -1015,7 +1015,7 @@ function refreshDiagnostics(diagnostics = {}) {
         if (encoderState.requestedOwner === 'rustAudioEngine' && encoderState.pcmBridgeReady !== true) {
             const bridgeMode = encoderState.pcmBridgeMode || 'planned';
             const bridgeReason = encoderState.pcmBridgeReason || encoderState.fallbackReason || 'rust-master-pcm-pending';
-            latencyLines.push(`Rust PCM bridge: ${bridgeMode} | ${bridgeReason}`);
+            latencyLines.push(`Rust PCM tap: ${bridgeMode} | ${bridgeReason}`);
         }
     }
     if (rustProbe.lastError) latencyLines.push(`Rust error: ${rustProbe.lastError}`);

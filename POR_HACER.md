@@ -9,6 +9,79 @@ Este documento es nuestra hoja de ruta compartida. Aquí mantendremos un registr
 
 ---
 
+## PRIORIDAD MAXIMA - Plan Maestro de Saneamiento Arquitectonico
+
+> **Objetivo:** convertir Electron en lo que siempre debio ser: un control remoto. El renderer pinta estado y envia intenciones; Node/Electron orquesta ventanas, IPC, archivos y procesos; Rust y los servicios especializados toman las decisiones de audio, tiempo, mezcla, encoder, analisis y planificacion.
+>
+> **Regla anti-parches:** antes de corregir un bug dentro de `frontend/render.js`, identificar si la responsabilidad ya pertenece a Rust, backend, worker, servicio o dependencia. Si pertenece afuera, corregir el contrato o el adaptador. Solo se permite parche local temporal si mantiene la radio operativa y queda documentado aqui con fecha de retiro.
+
+### Diagnostico confirmado por auditoria
+- [x] **`frontend/render.js` es el cuello de botella principal:** archivo activo de ~11.5k lineas, con UI, playlist, eventos, reloj, routing, WebAudio legacy, control plane Rust, encoder, cartwall, VU meters, diagnosticos y recuperacion de errores mezclados.
+- [x] **Muchas funciones ya fueron delegadas, pero el renderer conserva coordinacion vieja:** editores, preview, peaks, cue, DSP, taps, encoder Rust y varios servicios ya existen fuera del renderer. El problema restante no es "falta de piezas", sino limpiar los puentes legacy, duplicaciones y decisiones que quedaron vivas en `render.js`.
+- [x] **Web Audio API ya no debe ser fuente de verdad:** en modo `rustAudio`, el grafo WebAudio del renderer debe considerarse infraestructura inerte pendiente de eliminacion. Cualquier fallback WebAudio nuevo queda prohibido salvo aprobacion explicita.
+- [x] **`main.js` y `backend/ipc/windows.js` tambien concentran estado global:** estan mejor que antes, pero todavia mezclan ventanas, encoder, estado compartido y contratos de motor. El saneamiento debe incluirlos despues de estabilizar el renderer.
+
+### Inventario inicial verificado de `frontend/render.js`
+- [~] **Lineas 1-330, arranque/config/helpers:** conservar de momento, pero mover lectura/escritura de JSON a backend cuando exista servicio de configuracion.
+- [~] **Lineas 340-375, preanalisis de pistas:** mover a Rust/backend. Ya existe `getPeaks`; falta que `ensurePreanalysisForTrack` deje de decidir desde el renderer.
+- [~] **Lineas 381-1250, tabs/playlist/sesion/incidencias:** separar UI pura de estado operativo. Mantener DOM aqui temporalmente; mover decisiones de playlist/sesion a contrato backend/Rust.
+- [~] **Lineas 1250-1660, estado Rust virtual/mirror:** no borrar todavia. Es puente de compatibilidad hasta que Rust emita snapshot completo de playlist/transporte.
+- [ ] **Lineas 5900-6020, tiempos proyectados:** mover `recalcEndTime` y `_calcTbodyHours` fuera del renderer.
+- [ ] **Lineas 5985-6155, grafo WebAudio principal:** borrar cuando encoder master Rust quede como unica ruta y no haya fallback WebAudio aprobado.
+- [~] **Lineas 6570-7225, diagnostico/rutas/FX Rust:** conservar como adaptador temporal; reducir cuando los contratos de ruta, FX y devices vivan en backend.
+- [ ] **Lineas 7390-7665, routing WebAudio/Rust mezclado:** dividir. En modo Rust debe quedar solo UI + comando de ruta; taps WebAudio salen con el grafo legacy.
+- [ ] **Lineas 7810-9565, transporte playlist:** mover reglas de reproduccion, mix, fade y siguiente al motor/servicio. El renderer solo debe pintar y enviar intenciones.
+- [x] **Lineas 9718-10180, encoder:** retirado `startMasterPcmEncoderCapture` y camino `webAudioRenderer -> ffmpeg` para master. Queda por separar el bloque en modulo pequeno: Rust sync, microfono y estado visual del encoder.
+- [~] **Lineas 10230-11340, cartwall:** UI y modales pueden vivir en modulo frontend separado; reproduccion runtime ya debe pertenecer a Rust/servicio.
+- [~] **Lineas 11390-11478, listeners Rust finales:** conservar; son el camino correcto de push. Reducir cuando los handlers deleguen en modulos pequenos.
+
+### Fase 0 - Congelamiento de deuda nueva
+- [x] **Corte 2026-05-20 - polling/encoder fantasma eliminado:** retiradas constantes muertas de polling Rust en `render.js`, renombrado helper a intencion real (`shouldUseRustAudioEngine`), eliminado el armado cada 1s de `buildRustPcmEncoderLiveMixPlan()` y el handler IPC no-op `rust-pcm-encoder-sync`. El tap nativo Rust ya no depende de planes de players enviados desde el renderer.
+- [ ] **No agregar logica pesada nueva a `frontend/render.js`:** toda funcion nueva debe justificarse como UI pura. Si calcula audio, tiempo, playlist, analisis, encoder, DB o reglas, debe ir a Rust/backend/worker/servicio.
+- [ ] **Marcar cada parche temporal con fecha de retiro:** usar comentarios cortos del tipo `TEMP_RETIRO: mover a <modulo> cuando <condicion>`. No aceptar nuevos `FIX BUG version N` sin plan de salida.
+- [ ] **Crear inventario de responsabilidades reales:** tabla con cada bloque grande de `render.js`, propietario deseado y estado: `UI`, `Node`, `Rust`, `worker`, `servicio existente`, `eliminar`.
+
+### Fase 1 - Contratos, no parches
+- [ ] **Definir contrato unico de estado de reproduccion:** Rust debe emitir un snapshot suficiente para pintar AIRE, siguiente, progreso, mezcla, fin, meters y estado de players. `render.js` no debe reconstruir el mundo con relojes paralelos.
+- [ ] **Definir contrato unico de playlist:** el renderer envia comandos (`play`, `stop`, `next`, `seek`, `queue`, `move`, `delete`) y recibe estado pre-digerido. Calculos como `recalcEndTime`, proyecciones y saltos deben salir del renderer.
+- [x] **Corte 2026-05-20 - contrato unico del encoder master:** el contrato ya no anuncia `webAudioRenderer` como owner/captureProvider del master. `backend/ipc/windows.js` intenta Rust PCM tap directamente para master, reporta silencio como diagnostico y no como fallback, y consola/cliente muestran `Rust PCM tap` en lugar de bridge/fallback.
+- [ ] **Definir contrato unico de meters:** Rust emite meters por bus; backend retransmite; renderer/consola pintan. Cero amplitud WebAudio como dato funcional.
+
+### Fase 2 - Retiro ordenado de Web Audio API del sistema principal
+- [x] **Corte 2026-05-20 - fallback WebAudio del encoder master retirado:** eliminado `startMasterPcmEncoderCapture()`, el `ScriptProcessor` PCM del renderer, el armado manual de samples `s16le` y la ruta `webAudioRenderer -> ffmpeg` para master. Si el master no entra por Rust PCM tap, falla de forma explicita; el microfono conserva su captura `MediaRecorder`.
+- [ ] **Eliminar nodos WebAudio de master/playlist/cartwall en `render.js`:** despues de retirar el fallback del encoder, borrar `AudioContext`, `createGain`, `createMediaElementSource`, `MediaStreamDestination`, `ScriptProcessor`, analyzers y buses WebAudio que ya no participen en salida real.
+- [ ] **Reemplazar players HTML como fuente real:** `player-a`, `player-b` y `jingle-player` deben quedar solo como UI legacy o desaparecer. La reproduccion real debe vivir en Rust.
+- [x] **Corte 2026-05-20 - proxy `renderer.js` eliminado:** `index.html` carga directo `render.js`; se borro el proxy de una linea que solo hacia `require('./render.js')`.
+
+### Fase 3 - Reduccion de `render.js` por dominios
+- [ ] **Extraer modulo UI playlist:** DOM, seleccion, drag/drop visual, menus y renderizado. Sin reglas de audio ni calculo de tiempos.
+- [ ] **Extraer modulo UI cartwall:** grid, modales, colores y acciones de usuario. La reproduccion y estado runtime deben venir del motor/servicio.
+- [ ] **Extraer modulo UI eventos:** lista, calendario, botones e indicadores. El reloj y disparo automatico deben pertenecer al backend/Rust.
+- [ ] **Extraer modulo UI audio/FX/meters:** sliders, botones y pintura. El DSP, orden, niveles y rutas deben ser contratos Rust.
+- [ ] **Extraer modulo sesion/estado visual:** autosave de layout, preferencias de UI y restauracion visual, sin tocar motor.
+
+### Fase 4 - Backend/Electron como orquestador limpio
+- [ ] **Separar ventanas de encoder en `backend/ipc/windows.js`:** mover logica de FFmpeg/encoder a un servicio dedicado; dejar en `windows.js` solo creacion y ciclo de vida de ventanas.
+- [ ] **Reducir `sharedState` de `main.js`:** reemplazar el objeto gigante de getters/setters por servicios explicitos con dependencias pequenas.
+- [ ] **Centralizar acceso a archivos/config:** evitar que renderers lean y escriban JSON directamente cuando el backend ya puede validar, normalizar y emitir eventos.
+- [ ] **Centralizar escrituras SQLite:** mantener una sola autoridad de escritura para evitar bloqueos, carreras y diferencias entre renderer, workers y servicios.
+
+### Fase 5 - Verificacion obligatoria por cada corte
+- [ ] **Checklist funcional antes/despues:** Play, Stop, Next, Pause, Seek, Mix, FadeOut, locucion de hora, cartwall, preview, editor, encoder master, encoder mic, consola VU, cambio de tarjeta, cierre limpio.
+- [ ] **Prueba de no-regresion de audio:** validar que en modo `rustAudio` no se activa WebAudio para master, playlist, cartwall ni encoder master.
+- [ ] **Prueba de estabilidad de errores:** un fallo de Rust, FFmpeg o archivo inexistente debe producir estado claro, no cascada de parches ni timers compitiendo.
+- [ ] **Medicion de progreso arquitectonico:** registrar lineas de `render.js`, numero de referencias WebAudio, numero de IPC directos y bloques eliminados por fase.
+
+### Orden recomendado de ataque
+1. Congelar deuda nueva y hacer inventario por bloques de `render.js`.
+2. Cerrar encoder master Rust como unica ruta y retirar fallback WebAudio.
+3. Retirar grafo WebAudio principal.
+4. Extraer UI playlist/cartwall/eventos/meters por modulos.
+5. Limpiar `main.js` y `backend/ipc/windows.js`.
+6. Borrar proxies, legacy y comentarios historicos que ya no aporten.
+
+---
+
 ## 🚨 0. SPRINT EN CURSO — Migración a Motor Rust como única fuente de verdad
 
 > **Filosofía aplicada (regla de oro):** Electron es un humilde **control remoto**. El frontend NO procesa audio, NO calcula tiempos, NO lee la hora. Sólo manda comandos al motor Rust y dibuja lo que Rust le devuelve. Toda inteligencia y procesamiento viven en el motor nativo.
@@ -190,7 +263,7 @@ Trabajos ejecutados sin interrupción durante la madrugada con la regla operativ
 - [ ] **Monitoreo del encoder en tiempo real:** Panel de estado visible en la consola principal cuando el encoder está activo: megabytes subidos (parsear `size=` de la salida de FFmpeg), bitrate efectivo, tiempo de emisión, estado de conexión (verde/rojo/amarillo), y alerta ante corte o pérdida de paquetes. Rust puede incluir estas métricas en el push de 100 ms como campo `encoderStats` cuando `encoder_tap_active` es true.
 - [ ] **Estadísticas Reales de Red:** Mostrar en la interfaz del Encoder los megabytes subidos (`size=`) y la fluctuación exacta del bitrate en tiempo real extraídos directamente de FFmpeg.
 - [ ] **Grabador Testigo Local (Logger):** Agregar un parámetro a FFmpeg para que, además de emitir por internet, grabe un respaldo del audio en MP3 en una carpeta local (ej. separando archivos por hora/día).
-- [~] **Fuente PCM del Encoder desde Rust:** Ya existe contrato para distinguir fuente solicitada, fuente real y fallback. Estado actual: master usa `webAudioRenderer -> ffmpeg`; Rust queda preparado como proveedor futuro cuando el motor entregue PCM de master real.
+- [x] **Fuente PCM del Encoder desde Rust:** El master ya no usa `webAudioRenderer -> ffmpeg`; ahora requiere Rust PCM tap. El fallback WebAudio del master queda retirado y el microfono conserva `MediaRecorder`.
 - [ ] **Perfiles de Servidores Multiples:** Crear una pequeña base de datos para guardar perfiles de conexión (Ej: "Principal", "Backup", "Test") y poder intercambiar de emisora/servidor con un solo clic.
 
 ## 🎧 2. Ventanas y Experiencia de Usuario (UI/UX)
@@ -249,7 +322,7 @@ Trabajos ejecutados sin interrupción durante la madrugada con la regla operativ
 ## 🧹 5. Limpieza de Código y Backend
 - [x] Extraer lógica de Artistas, Géneros y Utilidades de `main.js` a `backend/services/`. (Completado - Se aligeró el proceso principal en ~2,000 líneas).
 - [ ] **Eliminar `migrateDataFromJSON()` en database.js:** Se ejecuta buscando archivos antiguos inexistentes.
-- [ ] **Eliminar `renderer.js` proxy:** Es un archivo inútil de 1 sola línea (`require('./render.js')`). Apuntar directo a `render.js` desde `main.js`.
+- [x] **Eliminar `renderer.js` proxy:** completado. `index.html` carga directo `render.js` y el proxy de una linea fue borrado.
 
 ## ⚙️ 6. Correcciones y Mantenimiento General
 - [x] Atajos `Ctrl+C/X/V` nativos integrados para copiado entre playlists manteniendo toda la metadata intacta.

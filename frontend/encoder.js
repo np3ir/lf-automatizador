@@ -374,7 +374,7 @@ function scheduleReconnect() {
     }, delaySec * 1000);
 }
 
-// ðŸ”¥ CARGAR MICRÃ“FONOS SOLO CUANDO SE NECESITA
+// Cargar microfonos solo cuando se necesita.
 async function loadMicrophones() {
     if (micDevicesLoaded) return;
 
@@ -389,7 +389,7 @@ async function loadMicrophones() {
         mics.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m.deviceId; 
-            opt.text = m.label || `MicrÃ³fono ${m.deviceId.substring(0,5)}`;
+            opt.text = m.label || `Micr\u00f3fono ${m.deviceId.substring(0,5)}`;
             micSel.appendChild(opt);
         });
 
@@ -398,10 +398,10 @@ async function loadMicrophones() {
         }
 
         micDevicesLoaded = true;
-        encLog("MicrÃ³fonos cargados correctamente.", "success");
+        encLog("Micr\u00f3fonos cargados correctamente.", "success");
 
     } catch (e) {
-        encLog("Error al acceder a micrÃ³fonos.", "error");
+        encLog("Error al acceder a micr\u00f3fonos.", "error");
     }
 }
 
@@ -428,7 +428,7 @@ sourceSel.addEventListener('change', async () => {
     micRow.style.display = isMic ? 'flex' : 'none';
 
     if (isMic) {
-        await loadMicrophones(); // ðŸ”¥ SOLO AQUÃ
+        await loadMicrophones(); // Solo aqui.
     }
 });
 
@@ -553,7 +553,7 @@ btnConnect.addEventListener('click', () => {
         autoReconnectEnabled = false;
         clearReconnectTimer();
         ipcRenderer.send('stop-encoder');
-        encLog("Deteniendo emisiÃ³n...", "warn");
+        encLog("Deteniendo emisi\u00f3n...", "warn");
     } else {
         autoReconnectEnabled = true;
         intentionalStop = false;
