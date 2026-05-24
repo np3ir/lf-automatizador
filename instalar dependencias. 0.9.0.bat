@@ -166,8 +166,16 @@ echo [INFO] Este es el paso que mas tiempo consume. Dependiendo de tu PC puede t
 echo [INFO] Por favor espera a que aparezca "Finalizado".
 
 cd audio-engine-rust
+
+:: Evitar el bug de 'dlltool' con rutas que contienen espacios usando un directorio temporal
+set "CARGO_TARGET_DIR=%TEMP%\lf_audio_target"
 call cargo build --release
-if %errorlevel% equ 0 goto cargo_ok
+set "BUILD_ERRORLEVEL=%errorlevel%"
+
+:: Restaurar variable
+set "CARGO_TARGET_DIR="
+
+if %BUILD_ERRORLEVEL% equ 0 goto cargo_ok
 
 color 0C
 echo.
@@ -181,10 +189,10 @@ exit /b 1
 echo [OK] Compilacion finalizada correctamente.
 echo [INFO] Guardando el ejecutable optimizado...
 if not exist "..\bin" mkdir "..\bin"
-copy /Y target\release\lf-audio-engine.exe "..\bin\lf-audio-engine.exe" >nul
+copy /Y "%TEMP%\lf_audio_target\release\lf-audio-engine.exe" "..\bin\lf-audio-engine.exe" >nul
 
 echo [INFO] Limpiando archivos temporales pesados para ahorrar espacio en disco...
-call cargo clean >nul 2>&1
+rmdir /s /q "%TEMP%\lf_audio_target" >nul 2>&1
 cd ..
 echo.
 
