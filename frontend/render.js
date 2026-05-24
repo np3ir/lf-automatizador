@@ -612,7 +612,6 @@ function syncRustPlaylistMode() {
         repeatTrack: generalPrefs.modeRepeatTrack === true,
         removePlayed: generalPrefs.modeRemovePlayed === true,
         loopPlaylist: generalPrefs.modeLoopPlaylist === true,
-        stopAfterCurrent: stopAfterCurrent === true,
         repeatForgetProtectionEnabled: generalPrefs.repeatForgetProtectionEnabled === true,
         repeatForgetProtectionMax: Math.max(1, Math.min(999, parseInt(generalPrefs.repeatForgetProtectionMax, 10) || 10)),
         repeatDisableOnManualNext: generalPrefs.repeatDisableOnManualNext !== false,
@@ -677,11 +676,6 @@ function handleRustPlaylistAction(message = {}) {
     }
     if (action === 'stop') {
         rustPlaylistAutoMixPendingUntil = 0;
-        if (stopAfterCurrent) {
-            stopAfterCurrent = false;
-            applyStopAfterVisualState();
-            syncRustPlaylistMode();
-        }
         stopAll();
         return;
     }
@@ -1845,9 +1839,12 @@ function syncRustRepeatTrackMode({ player = getPlaylistPlayerId(activePlayer), e
     if (!player || !isRustPlaylistOwnerEnabled()) return;
     const meta = getPlayerPlaybackMeta(activePlayer) || {};
     const repeatStartMs = Math.max(0, Math.round(((typeof meta.startOffset === 'number' ? meta.startOffset : currentStartTimeOffset) || 0) * 1000));
+    // La repeticion de playlist la decide el renderer. En Rust mantenemos el
+    // repeat nativo apagado para que no haga loops invisibles antes de que la
+    // UI procese `Pausar Fin`, bucle de cancion o bucle de lista.
     commandRustPlaylist('repeat', {
         player,
-        enabled: enabled === true,
+        enabled: false,
         startMs: repeatStartMs
     }).catch(() => { });
 }
@@ -2045,7 +2042,6 @@ function applyStopAfterVisualState() {
 function toggleStopAfter() {
     stopAfterCurrent = !stopAfterCurrent;
     applyStopAfterVisualState();
-    syncRustPlaylistMode();
     updateNextTrackVisuals();
 }
 
@@ -2053,9 +2049,44 @@ function stopAtEndOfCurrentTrack() {
     if (!stopAfterCurrent) return false;
     stopAfterCurrent = false;
     applyStopAfterVisualState();
-    syncRustPlaylistMode();
     stopAll();
     return true;
+}
+
+let repeatTrackFinishCount = 0;
+
+function finishCurrentTrack({ isAutoMix = false } = {}) {
+    if (!currentPlayingRow || !document.body.contains(currentPlayingRow)) {
+        stopAll();
+        return;
+    }
+
+    crossfadeTriggered = true;
+    crossfadeTriggeredForRow = currentPlayingRow;
+
+    if (stopAtEndOfCurrentTrack()) return;
+
+    if (generalPrefs.modeRepeatTrack) {
+        const rowToRepeat = currentPlayingRow;
+        repeatTrackFinishCount++;
+        playRow(rowToRepeat, false, 0, { startCause: 'repeat-track' });
+        if (generalPrefs.repeatForgetProtectionEnabled === true) {
+            const maxRepeats = Math.max(1, Math.min(999, parseInt(generalPrefs.repeatForgetProtectionMax, 10) || 10));
+            if (repeatTrackFinishCount >= maxRepeats) {
+                setRepeatTrackMode(false);
+                repeatTrackFinishCount = 0;
+                recordIncident('[GUARDIA AIRE] Bucle de cancion desactivado por proteccion contra olvido.', {
+                    category: 'guard',
+                    level: 'success',
+                    throttleKey: 'repeat-track-renderer-limit'
+                });
+            }
+        }
+        return;
+    }
+
+    repeatTrackFinishCount = 0;
+    playNext(isAutoMix);
 }
 
 // Conectar el botón "Pausar Fin" al click
@@ -2070,6 +2101,7 @@ function setRepeatTrackMode(enabled, { announce = true } = {}) {
     generalPrefs.modeRepeatTrack = nextValue;
     const btnModeRepeat = document.getElementById('btn-mode-repeat');
     if (btnModeRepeat) btnModeRepeat.classList.toggle('active-repeat', nextValue);
+    repeatTrackFinishCount = 0;
     markExpectedPlaybackPositionJump(nextValue ? 'repeat-enabled' : 'repeat-disabled');
     syncRustRepeatTrackMode({ enabled: nextValue });
     syncRustPlaylistMode();
@@ -7989,13 +8021,8 @@ function handleTimeUpdate(player) {
     }
 
     if (finActivo !== null && getPlayerClockTime(activePlayer) >= finActivo && !crossfadeTriggered) {
-        crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
-        if (stopAtEndOfCurrentTrack()) return;
-        if (isRustPlaylistOwnerEnabled()) {
-            notifyRustPlaylistFinished();
-            return;
-        }
-        playNext(false);
+        finishCurrentTrack();
+        return;
     }
 
     if (currentTrackConfig) {
@@ -8007,16 +8034,14 @@ function handleTimeUpdate(player) {
         if (triggerAbsolute !== null) {
             if (absTime >= triggerAbsolute && !crossfadeTriggered && !generalPrefs.modeRepeatTrack && !stopAfterCurrent) {
                 crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
-                if (isRustPlaylistOwnerEnabled()) notifyRustPlaylistFinished('mix');
-                else playNext(true);
+                playNext(true);
             }
         } else {
             const fallbackMixTrigger = getFallbackMixTriggerSeconds(currentTrackConfig);
             const effectiveMixTrigger = currentTrackConfig.mixTrigger > 0 ? currentTrackConfig.mixTrigger : fallbackMixTrigger;
             if (effectiveMixTrigger > 0 && timeLeft <= effectiveMixTrigger && !crossfadeTriggered && !generalPrefs.modeRepeatTrack && !stopAfterCurrent && currentDuration > 0) {
                 crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
-                if (isRustPlaylistOwnerEnabled()) notifyRustPlaylistFinished('mix');
-                else playNext(true);
+                playNext(true);
             }
         }
     }
@@ -8143,13 +8168,7 @@ function handleEnded(player) {
         // playbackEndAbsolute (mismo flujo que cualquier pista normal).
         if (isPlaylistTimeActive) return;
         if (player === activePlayer && !crossfadeTriggered) {
-            if (stopAtEndOfCurrentTrack()) return;
-            if (isRustPlaylistOwnerEnabled()) {
-                crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
-                notifyRustPlaylistFinished();
-                return;
-            }
-            if (currentPlayingRow && currentPlayingRow.dataset.temp === 'true') { currentPlayingRow.remove(); currentPlayingRow = null; calcularHorasPlaylist(); } playNext(false);
+            finishCurrentTrack();
         } else if (player !== activePlayer) { player.pause(); player.currentTime = 0; clearPlayerPlaybackMeta(player); }
     } catch (err) { }
 }
@@ -8826,6 +8845,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
     playRowSessionId++;
     const currentSessionId = playRowSessionId;
     const previousPlayingRow = currentPlayingRow;
+    if (previousPlayingRow !== tr) repeatTrackFinishCount = 0;
 
     // Limpieza de pista anterior (crucial para canciones temporales y saltos a comandos)
     if (previousPlayingRow && previousPlayingRow !== tr) {
@@ -9575,13 +9595,8 @@ function skipToNextTrack() {
     if (typeof currentTrackConfig !== 'undefined' && currentTrackConfig && currentTrackConfig.fadeoutNext > 0) {
         fade = currentTrackConfig.fadeoutNext;
     }
-    if (isRustPlaylistOwnerEnabled() && currentPlayingRow && document.body.contains(currentPlayingRow)) {
-        notifyRustPlaylistManualNext()
-            .then(result => {
-                if (!result?.ok) playNext(false, fade);
-            })
-            .catch(() => playNext(false, fade));
-        return;
+    if (generalPrefs.modeRepeatTrack && generalPrefs.repeatDisableOnManualNext !== false) {
+        setRepeatTrackMode(false);
     }
     playNext(false, fade);
 }
@@ -11177,7 +11192,9 @@ ipcRenderer.on('audio-engine-rust-event', (e, message) => {
     }
 
     if (message.type === 'playlistAction') {
-        try { handleRustPlaylistAction(message); } catch (err) {}
+        // La playlist la decide exclusivamente el renderer. Ignoramos acciones
+        // heredadas de motores anteriores para evitar avances distintos entre
+        // Windows y Linux cuando Rust detecta player.empty().
         return;
     }
 
@@ -11217,9 +11234,7 @@ ipcRenderer.on('audio-engine-rust-event', (e, message) => {
             // Si por algún motivo handleTimeUpdate aún no disparó la transición
             // (canción siguiente cargada), forzamos el avance.
             if (!crossfadeTriggered && currentPlayingRow === ctx.row) {
-                if (stopAtEndOfCurrentTrack()) return;
-                crossfadeTriggered = true; crossfadeTriggeredForRow = currentPlayingRow;
-                notifyRustPlaylistFinished();
+                finishCurrentTrack();
             }
         }
     }
