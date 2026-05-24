@@ -28,6 +28,45 @@
 
 ---
 
+## 🎯 Guía de Primer Uso: Configuración y Análisis
+
+**¿Por qué es vital configurar y analizar la carpeta raíz al principio?**
+Hacer este proceso en tu primer uso es la práctica más recomendada porque optimiza drásticamente el rendimiento del programa. 
+
+Al hacer un análisis masivo previo, el automatizador calcula y guarda permanentemente los metadatos de cada canción (nivel de volumen, eliminación de silencios al inicio y al final, y los puntos de cruce o mix). Si no haces esto, el programa tendría que calcular estos datos "al vuelo" (en tiempo real) justo antes de reproducir cada canción, lo que consumiría muchos recursos del procesador (CPU), generando posibles retrasos (lag) y transiciones torpes. Al pre-analizar todo, el programa se vuelve mucho más ligero, rápido y garantiza una emisión ininterrumpida y profesional.
+
+![Guía Rápida - Primer Uso](Documentaci%C3%B3n/guia_primer_uso.jpg)
+
+### Paso a Paso: Cómo cargar y analizar tu biblioteca musical
+
+**Paso 1: Abrir la Biblioteca de Música**
+* Dirígete a la barra de menú principal en la parte superior.
+* Haz clic en **Herramientas**.
+* Selecciona **Biblioteca de Música** en el menú desplegable (también puedes usar el atajo de teclado `Ctrl+B`).
+
+**Paso 2: Acceder a los Ajustes**
+* Se abrirá una nueva ventana vacía correspondiente a la Biblioteca.
+* Dirígete a la esquina superior derecha y haz clic en el ícono de engranaje (Ajustes), ubicado justo a la izquierda del botón verde.
+
+**Paso 3: Definir la Carpeta Raíz**
+* En la ventana emergente de Ajustes de Biblioteca, busca el apartado *"Carpeta raíz de música"*.
+* Haz clic en el botón **Examinar...** y navega por tus carpetas para seleccionar el directorio principal donde guardas todos tus archivos de audio.
+* Asegúrate de tener marcada la casilla *"Cargar la carpeta raíz al abrir la biblioteca"* para que tu música siempre esté disponible, y luego haz clic en **Guardar**.
+
+**Paso 4: Ingresar al Centro de Procesamiento**
+* De vuelta en la pantalla de la Biblioteca de Música (ahora con la ruta de tus archivos reconocida), ve nuevamente a la esquina superior derecha.
+* Haz clic en el botón verde que dice **► Centro de Procesamiento**.
+
+**Paso 5: Iniciar el Análisis Masivo**
+* Se abrirá la ventana del Centro de Procesamiento Masivo.
+* Verifica que estén marcadas las opciones esenciales de análisis (como *Analizar Volumen Promedio* y *Detectar Inicio, Fin y Punto Mix*).
+* En la sección de *Comportamiento con pistas existentes*, es recomendable dejar marcado *"Omitir archivos que ya tienen datos"* para que futuros escaneos sean más rápidos.
+* Por último, haz clic en el botón verde **► Iniciar Proceso** en la esquina inferior derecha.
+
+El sistema comenzará a escanear y guardar los parámetros de cada canción de tu carpeta raíz. Una vez termine, tu LF Automatizador estará completamente optimizado y listo para salir al aire con la máxima fluidez.
+
+---
+
 ## 🏗️ Arquitectura Actual
 
 El sistema utiliza una arquitectura distribuida y asíncrona dentro del ecosistema de **Node.js** y **Electron**, diseñada para garantizar **latencia cero** en el motor de audio y cero congelamientos en la UI.

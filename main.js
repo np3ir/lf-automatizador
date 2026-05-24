@@ -2195,6 +2195,8 @@ function createApplicationMenu() {
         {
             label: 'Ayuda',
             submenu: [
+                { label: '🎯 Guía de Primer Uso', click: () => { require('electron').shell.openPath(require('path').join(__dirname, 'Documentación', 'guia_primer_uso.jpg')).catch(()=>{}); } },
+                { type: 'separator' },
                 { label: '⌨️ Atajos de Teclado', click: () => { dialog.showMessageBox(mainWindow, { type: 'info', title: 'Atajos de Teclado', message: 'P: Play/Pausa\nS: Stop\nN: Siguiente\nQ: Marcar Siguiente\nF: Pausar al Finalizar\nCtrl+T: Temporal\nSupr: Eliminar\nCtrl+H: Hora\nCtrl+N/O/S: Playlists\nCtrl+P: Ajustes\nCtrl+B: Biblioteca\nF11: Pantalla Completa' }); }},
                 { label: 'ℹ️ Acerca de LF Automatizador', click: () => { dialog.showMessageBox(mainWindow, { type: 'info', title: 'Acerca de', message: 'LF Automatizador v0.9.0' }); }}
             ]
