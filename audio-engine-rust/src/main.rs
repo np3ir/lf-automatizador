@@ -527,34 +527,29 @@ impl Default for DspParams {
             limiter_wet_target_bits: AtomicU32::new(1.0_f32.to_bits()),
             eq_bands,
             // Parámetros AGC broadcast. El objetivo es que la música salga
-            // estable alrededor de -2 dBFS con el Limitador (-0.3 dB) como
-            // techo de seguridad.
+            // estable con picos alrededor de -2 dBFS, evitando la saturación
+            // que causaba un makeup gain excesivo.
             //
-            // Matemática con música típica a -13 dBFS:
-            //   Exceso sobre threshold (-18): 5 dB
-            //   Reducción (ratio 3:1):        5 × (2/3) = 3.3 dB
-            //   Post-comp:                    -16.3 dB
-            //   Makeup +14 dB:                -2.3 dB ← cerca de -1 dBFS
+            // Matemática con música típica (RMS a -14 dBFS):
+            //   Exceso sobre threshold (-20): 6 dB
+            //   Reducción (ratio 3:1):        6 × (2/3) = 4 dB de atenuación
+            //   Post-comp:                    -18 dBFS (RMS)
+            //   Makeup +9 dB:                 -9 dBFS (RMS)
+            //   Picos (crest factor ~7dB):    -2 dBFS (Perfecto, toca el limitador suavemente)
             //
-            // Matemática con música típica a -13 dBFS:
-            //   Exceso sobre threshold (-22): 9 dB
-            //   Reducción (ratio 4:1):        9 × (3/4) = 6.75 dB
-            //   Post-comp:                    -19.75 dBFS
-            //   Makeup +15.5 dB:              -4.25 dBFS (RMS muy lleno y rico)
-            //
-            // Con música ya saturada/fuerte en picos de -1 dBFS:
-            //   Exceso sobre threshold (-22): 21 dB
-            //   Reducción (ratio 4:1):        21 × (3/4) = 15.75 dB
-            //   Post-comp:                    -16.75 dBFS
-            //   Makeup +15.5 dB:              -1.25 dBFS ← ¡Se mantiene estable bajo -1 dBFS sin distorsionar ni comprimir de forma destructiva!
-            //   El Limitador protector de -1.0 dBFS nunca se activa con clipping duro.
-            comp_threshold_db_bits: AtomicU32::new((-22.0_f32).to_bits()),
-            comp_ratio_bits: AtomicU32::new(4.0_f32.to_bits()),
+            // Con música fuerte/saturada (RMS a -10 dBFS):
+            //   Exceso sobre threshold (-20): 10 dB
+            //   Reducción (ratio 3:1):        10 × (2/3) = 6.66 dB
+            //   Post-comp:                    -16.66 dBFS (RMS)
+            //   Makeup +9 dB:                 -7.66 dBFS (RMS)
+            //   Limitador ataja picos fuertes en -2.0 dBFS para proteger la salida.
+            comp_threshold_db_bits: AtomicU32::new((-20.0_f32).to_bits()),
+            comp_ratio_bits: AtomicU32::new(3.0_f32.to_bits()),
             comp_attack_ms_bits: AtomicU32::new(30.0_f32.to_bits()),
             comp_release_ms_bits: AtomicU32::new(800.0_f32.to_bits()),
             comp_knee_db_bits: AtomicU32::new(6.0_f32.to_bits()),
-            comp_makeup_db_bits: AtomicU32::new(15.5_f32.to_bits()),
-            limiter_ceiling_db_bits: AtomicU32::new((-1.0_f32).to_bits()),
+            comp_makeup_db_bits: AtomicU32::new(9.0_f32.to_bits()),
+            limiter_ceiling_db_bits: AtomicU32::new((-2.0_f32).to_bits()),
             limiter_release_ms_bits: AtomicU32::new(100.0_f32.to_bits()),
             // postFx por defecto (consistente con state.encoder_source_mode).
             encoder_tap_mode: AtomicU8::new(1),
