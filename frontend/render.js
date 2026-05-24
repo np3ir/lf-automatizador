@@ -12,6 +12,7 @@ const { ipcRenderer, webUtils } = require('electron');
 const { normalizeAudioPrefs } = require('./audio_prefs');
 const { AudioEngineClient, RustAudioEngineAdapter } = require('./audio_engine_client');
 const { getConfigDir } = require('../backend/utils/app_paths');
+const { version: APP_VERSION } = require('../package.json');
 
 
 document.addEventListener('dragover', (e) => e.preventDefault());
@@ -2074,6 +2075,9 @@ function setLoopPlaylistMode(enabled, { announce = true } = {}) {
     saveConfig(generalPrefsPath, generalPrefs);
     const btnModeLoop = document.getElementById('btn-mode-looplist');
     if (btnModeLoop) btnModeLoop.classList.toggle('active-loop', nextValue);
+    if (currentPlayingRow && (!queuedNextRow || queuedNextRow.dataset.manualNext !== "true")) {
+        queuedNextRow = resolveNextOperationalRow(currentPlayingRow.nextElementSibling, nextValue);
+    }
     syncRustPlaylistMode();
     updateNextTrackVisuals();
     if (announce) {
@@ -2264,9 +2268,10 @@ function openRemovePlayedOptionsDialog() {
 }
 
 function updateAppTitle(text = '') {
-    const base = 'LF Automatizador v0.9.0';
+    const base = `LF Automatizador v${APP_VERSION}`;
     document.title = text ? `${text} - ${base}` : base;
 }
+updateAppTitle();
 
 function updateMediaSessionStatus(title, artist = '') {
     if (!('mediaSession' in navigator)) return;
@@ -3491,7 +3496,7 @@ ipcRenderer.on('menu-shuffle', () => { handleShuffleActivePlaylist(); });
 ipcRenderer.on('menu-clear-played', () => { handleClearPlayedTracks(); });
 ipcRenderer.on('menu-check-links', () => { handleCheckBrokenLinks(); });
 ipcRenderer.on('menu-open-rotation', () => { openRotationModal(); });
-ipcRenderer.on('menu-toggle-loop', () => { setRepeatTrackMode(!generalPrefs.modeRepeatTrack); });
+ipcRenderer.on('menu-toggle-loop', () => { setLoopPlaylistMode(!generalPrefs.modeLoopPlaylist); });
 
 ipcRenderer.on('menu-add-stop', () => { insertSpecialRow('stop'); });
 ipcRenderer.on('menu-add-note', async () => {

@@ -6,6 +6,7 @@ const os = require('os');
 const { Worker } = require('worker_threads');
 const nodeID3 = require('node-id3');
 const { getConfigDir } = require('./backend/utils/app_paths');
+const { version: APP_VERSION } = require('./package.json');
 const db = require('./database');
 const { RustAudioEngineProbe } = require('./backend/audio_engine_process');
 const { cleanCsvList, mergeCsvList, cleanMetaString, tokenSet, jaccard, waitRateLimit } = require('./backend/utils/helpers.js');
@@ -849,7 +850,11 @@ function scheduleVuBroadcast(immediate = false) {
 function writeLog(msg) {
     const timeStr = new Date().toLocaleString('es-PE', { hour12: false });
     const finalMsg = `[${timeStr}] ${msg}\n`;
-    fs.appendFileSync(path.join(__dirname, 'ERROR_ANALYZER_LOG.txt'), finalMsg);
+    try {
+        fs.appendFileSync(path.join(configDir, 'ERROR_ANALYZER_LOG.txt'), finalMsg);
+    } catch (err) {
+        try { fs.appendFileSync(path.join(os.tmpdir(), 'LF-Automatizador-ERROR_ANALYZER_LOG.txt'), finalMsg); } catch (fallbackErr) {}
+    }
 }
 
 const updateTrackFileSignatureStmt = db.prepare(`
@@ -2068,7 +2073,7 @@ function installNavigationGuards() {
     });
 }
 
-function createWindow() { mainWindow = new BrowserWindow({ icon: require('electron').nativeImage.createFromPath(require('path').join(__dirname, 'icon.ico')),   width: 1280, height: 720, title: 'LF Automatizador', autoHideMenuBar: false, webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false } }); mainWindow.setMenuBarVisibility(uiPrefs.menuVisible); mainWindow.maximize(); mainWindow.loadFile('frontend/index.html'); mainWindow.on('close', (e) => { if (!forceQuit) { e.preventDefault(); mainWindow.webContents.send('request-close-check'); } }); mainWindow.on('closed', () => { isAppQuitting = true; app.quit(); }); }
+function createWindow() { mainWindow = new BrowserWindow({ icon: require('electron').nativeImage.createFromPath(require('path').join(__dirname, 'icon.ico')),   width: 1280, height: 720, title: `LF Automatizador v${APP_VERSION}`, autoHideMenuBar: false, webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false } }); mainWindow.setMenuBarVisibility(uiPrefs.menuVisible); mainWindow.maximize(); mainWindow.loadFile('frontend/index.html'); mainWindow.on('close', (e) => { if (!forceQuit) { e.preventDefault(); mainWindow.webContents.send('request-close-check'); } }); mainWindow.on('closed', () => { isAppQuitting = true; app.quit(); }); }
 function syncCartwallMenuState(checked) { const appMenu = Menu.getApplicationMenu(); const item = appMenu ? appMenu.getMenuItemById('view-toggle-cartwall') : null; if (item) item.checked = checked; }
 function createApplicationMenu() {
     const template = [
@@ -2195,7 +2200,7 @@ function createApplicationMenu() {
                 { label: '🎯 Guía de Primer Uso', click: () => { require('electron').shell.openPath(require('path').join(__dirname, 'Documentación', 'guia_primer_uso.jpg')).catch(()=>{}); } },
                 { type: 'separator' },
                 { label: '⌨️ Atajos de Teclado', click: () => { dialog.showMessageBox(mainWindow, { type: 'info', title: 'Atajos de Teclado', message: 'P: Play/Pausa\nS: Stop\nN: Siguiente\nQ: Marcar Siguiente\nF: Pausar al Finalizar\nCtrl+T: Temporal\nSupr: Eliminar\nCtrl+H: Hora\nCtrl+N/O/S: Playlists\nCtrl+P: Ajustes\nCtrl+B: Biblioteca\nF11: Pantalla Completa' }); }},
-                { label: 'ℹ️ Acerca de LF Automatizador', click: () => { dialog.showMessageBox(mainWindow, { type: 'info', title: 'Acerca de', message: 'LF Automatizador v0.9.0' }); }}
+                { label: 'ℹ️ Acerca de LF Automatizador', click: () => { dialog.showMessageBox(mainWindow, { type: 'info', title: 'Acerca de', message: `LF Automatizador v${APP_VERSION}` }); }}
             ]
         }
     ];
