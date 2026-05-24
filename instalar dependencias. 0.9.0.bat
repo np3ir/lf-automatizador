@@ -210,8 +210,8 @@ echo ===========================================================================
 echo.
 echo Todas las dependencias han sido instaladas correctamente.
 echo Ya puedes disfrutar de LF Automatizador.
+echo Para abrir el programa, haz doble clic en el archivo:
+echo "Iniciar automatizador 0.9.0.bat"
 echo.
-echo Iniciando programa en 3 segundos...
-ping 127.0.0.1 -n 4 >nul
-start "" "Iniciar automatizador 0.9.0.bat"
+pause
 exit
