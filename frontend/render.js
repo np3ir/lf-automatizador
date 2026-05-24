@@ -142,10 +142,33 @@ async function getBackendAudioPeaks(filePath) {
     return normalizeMainWaveformPeaks(result?.peaks);
 }
 
+function getAudioDurationFast(filePath) {
+    return new Promise((resolve) => {
+        const audio = new Audio();
+        const timeout = setTimeout(() => resolve(null), 1500);
+        audio.addEventListener('loadedmetadata', () => {
+            clearTimeout(timeout);
+            resolve(audio.duration);
+        });
+        audio.addEventListener('error', () => {
+            clearTimeout(timeout);
+            resolve(null);
+        });
+        audio.preload = 'metadata';
+        audio.src = `file:///${filePath.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')}`;
+    });
+}
+
 async function getAudioDuration(filePath) {
     if (!filePath) return Promise.resolve(0);
     if (audioDurationCache.has(filePath)) return Promise.resolve(audioDurationCache.get(filePath));
     try {
+        const fastDuration = await getAudioDurationFast(filePath);
+        if (fastDuration && fastDuration > 0) {
+            audioDurationCache.set(filePath, fastDuration);
+            return fastDuration;
+        }
+        
         const peaks = await getRustAudioPeaks(filePath, 256) || await getBackendAudioPeaks(filePath);
         const duration = Number.isFinite(peaks?.duration) ? peaks.duration : 0;
         audioDurationCache.set(filePath, duration);
