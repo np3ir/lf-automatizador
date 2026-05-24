@@ -35,7 +35,7 @@ Hacer este proceso en tu primer uso es la práctica más recomendada porque opti
 
 Al hacer un análisis masivo previo, el automatizador calcula y guarda permanentemente los metadatos de cada canción (nivel de volumen, eliminación de silencios al inicio y al final, y los puntos de cruce o mix). Si no haces esto, el programa tendría que calcular estos datos "al vuelo" (en tiempo real) justo antes de reproducir cada canción, lo que consumiría muchos recursos del procesador (CPU), generando posibles retrasos (lag) y transiciones torpes. Al pre-analizar todo, el programa se vuelve mucho más ligero, rápido y garantiza una emisión ininterrumpida y profesional.
 
-![Guía Rápida - Primer Uso](Documentaci%C3%B3n/guia_primer_uso.jpg)
+![Guía Rápida - Primer Uso](Documentaci%C3%B3n/guia_primer_uso.jpg?v=2)
 
 ### Paso a Paso: Cómo cargar y analizar tu biblioteca musical
 
