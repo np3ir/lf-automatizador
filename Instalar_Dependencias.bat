@@ -47,12 +47,8 @@ if errorlevel 1 (
 
 echo.
 echo [2/5] Instalando dependencias Node...
-if exist "package-lock.json" (
-    call npm ci >> "%LOG_FILE%" 2>&1
-) else (
-    echo AVISO: no existe package-lock.json; usando npm install.
+    echo Ejecutando npm install...
     call npm install >> "%LOG_FILE%" 2>&1
-)
 if errorlevel 1 (
     echo ERROR: fallo npm. Revisa: %LOG_FILE%
     pause

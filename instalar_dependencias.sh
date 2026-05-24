@@ -162,13 +162,8 @@ else
 fi
 
 step "Instalando dependencias Node"
-if [ -f package-lock.json ]; then
-    echo "Ejecutando npm ci..."
-    npm ci
-else
-    echo -e "${YELLOW}No existe package-lock.json; usando npm install.${NC}"
+    echo "Ejecutando npm install..."
     npm install
-fi
 
 step "Recompilando better-sqlite3 para Electron"
 if [ ! -d "node_modules/better-sqlite3" ]; then
