@@ -1,0 +1,72 @@
+name: Build Installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Linux Dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config fakeroot dpkg libx11-dev libxkbfile-dev
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Compile Rust Engine (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cd audio-engine-rust
+          cargo build --release
+          mkdir -p ../bin
+          cp target/release/lf-audio-engine.exe ../bin/
+
+      - name: Compile Rust Engine (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          cd audio-engine-rust
+          cargo build --release
+          mkdir -p ../bin
+          cp target/release/lf-audio-engine ../bin/
+
+      - name: Install NPM Dependencies
+        run: npm install
+
+      - name: Build Electron App
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist
+        
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lf-automatizador-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.deb
+            dist/*.AppImage

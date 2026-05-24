@@ -18,6 +18,7 @@ ERROR_ANALYZER_LOG.txt
 track_cache.json
 bin/
 cache/
+dist/
 
 # Archivos pesados de audio de prueba
 *.mp3

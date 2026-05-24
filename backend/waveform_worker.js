@@ -5,6 +5,7 @@ let ffmpegPath = 'ffmpeg';
 try { 
     if (process.platform === 'win32') {
         ffmpegPath = require('ffmpeg-static') || 'ffmpeg'; 
+        ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
     } else {
         ffmpegPath = 'ffmpeg'; // Usar el nativo del sistema en Linux/Mac
     }
