@@ -2,7 +2,6 @@
 title Instalador de Dependencias - LF Automatizador 0.9.0
 color 0A
 
-:: Obtener la ruta donde esta el script y moverse a ella
 cd /d "%~dp0"
 
 echo ========================================================

@@ -1,8 +1,27 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-# Ejecutar en segundo plano (nohup) y redirigir toda la salida a null para que se desacople de la terminal
-nohup npm start >/dev/null 2>&1 &
+echo "Iniciando LF Automatizador 0.9.0..."
 
-# Salir inmediatamente, cerrando la terminal
-exit 0
+# Arrancar en segundo plano y guardar la salida en un archivo de log
+npm start > error_log.txt 2>&1 &
+PID=$!
+
+# Esperar 4 segundos para validar que haya arrancado sin crashear
+sleep 4
+
+if ps -p $PID > /dev/null; then
+    # El proceso sigue vivo exitosamente, cerramos la terminal negra
+    exit 0
+else
+    # El proceso crasheó (falló) en esos primeros segundos
+    echo ""
+    echo "[ERROR] El programa falló al iniciar o se cerró inesperadamente."
+    echo "Revisa el registro de errores a continuación:"
+    echo "--------------------------------------------------------"
+    cat error_log.txt
+    echo "--------------------------------------------------------"
+    echo ""
+    read -p "Presiona Enter para salir..."
+    exit 1
+fi
