@@ -394,7 +394,7 @@ function openTaskManagerWindow() {
         taskManagerWindow.focus();
         return;
     }
-    taskManagerWindow = new BrowserWindow({ icon: require('electron').nativeImage.createFromPath(require('path').join(__dirname, '', 'assets', 'icons', 'task.png')),  
+    taskManagerWindow = new BrowserWindow({ icon: require('electron').nativeImage.createFromPath(require('path').join(__dirname, 'icon.ico')),  
         width: 820,
         height: 540,
         minWidth: 720,
@@ -2071,7 +2071,7 @@ function installNavigationGuards() {
     });
 }
 
-function createWindow() { mainWindow = new BrowserWindow({ icon: require('electron').nativeImage.createFromPath(require('path').join(__dirname, '', 'assets', 'icons', 'main.png')),   width: 1280, height: 720, title: 'LF Automatizador', autoHideMenuBar: false, webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false } }); mainWindow.setMenuBarVisibility(uiPrefs.menuVisible); mainWindow.maximize(); mainWindow.loadFile('frontend/index.html'); mainWindow.on('close', (e) => { if (!forceQuit) { e.preventDefault(); mainWindow.webContents.send('request-close-check'); } }); mainWindow.on('closed', () => { isAppQuitting = true; app.quit(); }); }
+function createWindow() { mainWindow = new BrowserWindow({ icon: require('electron').nativeImage.createFromPath(require('path').join(__dirname, 'icon.ico')),   width: 1280, height: 720, title: 'LF Automatizador', autoHideMenuBar: false, webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false } }); mainWindow.setMenuBarVisibility(uiPrefs.menuVisible); mainWindow.maximize(); mainWindow.loadFile('frontend/index.html'); mainWindow.on('close', (e) => { if (!forceQuit) { e.preventDefault(); mainWindow.webContents.send('request-close-check'); } }); mainWindow.on('closed', () => { isAppQuitting = true; app.quit(); }); }
 function syncCartwallMenuState(checked) { const appMenu = Menu.getApplicationMenu(); const item = appMenu ? appMenu.getMenuItemById('view-toggle-cartwall') : null; if (item) item.checked = checked; }
 function createApplicationMenu() {
     const template = [
