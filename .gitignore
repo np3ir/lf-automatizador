@@ -1,10 +1,14 @@
 # Dependencies and generated build output
 node_modules/
 audio-engine-rust/target/
+.native-build/
 
-# Local backups and prototypes
+# Local backups, prototypes and sibling projects
 000 Resplando (no tocar)/
 Prototipo/
+PROBAR_PLAYERS/
+LF Automatizador 2.0/
+Documentación/
 scratch/
 scratch_*.js
 
@@ -29,9 +33,11 @@ cache/
 # Asegurar que los instaladores y scripts multiplataforma SÍ se suban
 !iniciar.sh
 !instalar_dependencias.sh
-!copiar.sh
 !Iniciar_Automatizador.bat
 !Instalar_Dependencias.bat
+
+# Herramientas locales de copia/despliegue, no pertenecen al repo
+copiar.sh
 
 # Local editor and OS noise
 .DS_Store
@@ -41,6 +47,7 @@ desktop.ini
 # Bases de datos locales y configuraciones de la radio
 config/*.sqlite
 config/*.sqlite-*
+config/*.sqlite.*
 config/*.json
 !config/*.example.json
 config/*.txt

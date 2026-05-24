@@ -1,62 +1,86 @@
 @echo off
+setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
-:: ╔══════════════════════════════════════════════════════════════════════╗
-:: ║     LF Automatizador — Instalador de Dependencias para Windows       ║
-:: ║                                                                      ║
-:: ║  EJECUTAR UNA SOLA VEZ (o cuando falte algo en un PC nuevo).         ║
-:: ╚══════════════════════════════════════════════════════════════════════╝
-
-echo ====================================================================
-echo      LF Automatizador - Instalador de Dependencias (Windows)
-echo ====================================================================
-echo.
+title LF Automatizador - Instalar dependencias
 
 cd /d "%~dp0"
 
-echo [Paso 1/5] Verificando Node.js...
+echo ============================================================
+echo   LF Automatizador - instalador de dependencias para Windows
+echo   Raiz del proyecto: %CD%
+echo ============================================================
+echo.
+
+echo [1/5] Verificando Node.js y npm...
 where node >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Node.js no esta instalado.
-    echo Por favor descarga e instala Node.js LTS desde: https://nodejs.org/
-    echo Asegurate de marcar la opcion "Automatically install the necessary tools" 
-    echo durante la instalacion (esto instalara Python y Visual Studio Build Tools).
+if errorlevel 1 (
+    echo ERROR: Node.js no esta instalado.
+    echo Descarga la version LTS desde https://nodejs.org/
+    pause
+    exit /b 1
+)
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: npm no esta disponible. Reinstala Node.js LTS.
     pause
     exit /b 1
 )
 node -v
+npm -v
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)"
+if errorlevel 1 (
+    echo ERROR: se requiere Node.js 22.12.0 o superior para las herramientas actuales de Electron.
+    echo Instala la version LTS actual desde https://nodejs.org/ y vuelve a intentar.
+    pause
+    exit /b 1
+)
 
 echo.
-echo [Paso 2/5] Verificando Rust (Cargo)...
+echo [2/5] Instalando dependencias Node desde package-lock.json...
+if exist "package-lock.json" (
+    call npm ci
+) else (
+    echo AVISO: no existe package-lock.json; usando npm install.
+    call npm install
+)
+if errorlevel 1 (
+    echo ERROR: fallo la instalacion de dependencias Node.
+    pause
+    exit /b 1
+)
+
+echo.
+echo [3/5] Recompilando modulos nativos para Electron...
+if exist "node_modules\better-sqlite3\" (
+    call npx electron-rebuild -f -w better-sqlite3
+    if errorlevel 1 (
+        echo ERROR: fallo electron-rebuild.
+        echo Cierra cualquier instancia abierta de LF Automatizador/Electron y vuelve a intentar.
+        pause
+        exit /b 1
+    )
+    for /f "usebackq delims=" %%v in (`node -p "require('./node_modules/electron/package.json').version"`) do set "ELECTRON_VERSION=%%v"
+    for /f "usebackq delims=" %%v in (`node -p "require('./node_modules/better-sqlite3/package.json').version"`) do set "SQLITE_VERSION=%%v"
+    for /f "usebackq delims=" %%v in (`node -p "process.platform + '-' + process.arch"`) do set "BUILD_PLATFORM=%%v"
+    if not exist ".native-build" mkdir ".native-build"
+    echo ok > ".native-build\!BUILD_PLATFORM!-electron-!ELECTRON_VERSION!-better-sqlite3-!SQLITE_VERSION!.ok"
+) else (
+    echo AVISO: better-sqlite3 no esta instalado. Revisa la salida de npm.
+)
+
+echo.
+echo [4/5] Verificando Rust (Cargo)...
 where cargo >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Rust no esta instalado.
-    echo Por favor descarga e instala Rust desde: https://rustup.rs/
-    echo ^(Descarga y ejecuta rustup-init.exe, presiona 1 para la instalacion por defecto^)
+if errorlevel 1 (
+    echo ERROR: Rust no esta instalado.
+    echo Instala Rust desde https://rustup.rs/ y vuelve a ejecutar este instalador.
     pause
     exit /b 1
 )
 cargo --version
 
 echo.
-echo [Paso 3/5] Instalando modulos de Node (npm install)...
-if not exist "node_modules\" (
-    echo Ejecutando npm install... (puede tomar unos minutos)
-    call npm install
-) else (
-    echo node_modules ya existe.
-)
-
-echo.
-echo [Paso 4/5] Recompilando modulos nativos para Electron...
-if not exist "node_modules\better-sqlite3\build\Release\" (
-    echo Ejecutando electron-rebuild...
-    call npx electron-rebuild
-) else (
-    echo better-sqlite3 ya esta compilado para Electron.
-)
-
-echo.
-echo [Paso 5/5] Compilando motor de audio Rust nativo...
+echo [5/5] Compilando motor de audio Rust si hace falta...
 set "RUST_NEEDS_BUILD=0"
 if not exist "bin\lf-audio-engine.exe" (
     set "RUST_NEEDS_BUILD=1"
@@ -66,35 +90,37 @@ if not exist "bin\lf-audio-engine.exe" (
 )
 
 if "%RUST_NEEDS_BUILD%"=="1" (
-    echo Compilando lf-audio-engine... (primera vez puede tomar varios minutos)
-    cd audio-engine-rust
+    if not exist "audio-engine-rust\Cargo.toml" (
+        echo ERROR: no se encontro audio-engine-rust\Cargo.toml.
+        pause
+        exit /b 1
+    )
+    pushd audio-engine-rust
     call cargo build --release
-    cd ..
-    if not exist "bin" mkdir bin
+    if errorlevel 1 (
+        popd
+        echo ERROR: fallo la compilacion del motor Rust.
+        pause
+        exit /b 1
+    )
+    popd
+    if not exist "bin" mkdir "bin"
     copy /Y "audio-engine-rust\target\release\lf-audio-engine.exe" "bin\lf-audio-engine.exe" >nul
-    echo.
-    echo [OK] Motor compilado exitosamente.
+    echo OK: motor compilado en bin\lf-audio-engine.exe
 ) else (
-    echo Motor de audio ya esta compilado y actualizado.
+    echo OK: motor de audio ya estaba actualizado.
 )
 
 echo.
-echo ====================================================================
-echo [Limpieza] Liberando espacio de basura, cache y compilacion...
-echo ====================================================================
-echo.
-echo Limpiando cache de npm...
-call npm cache clean --force >nul 2>&1
-
-echo Limpiando cache de compilacion de Rust (liberando ~1-2 GB)...
-cd audio-engine-rust
-call cargo clean >nul 2>&1
-cd ..
+echo Limpiando caches temporales...
+call npm cache verify >nul 2>nul
+pushd audio-engine-rust
+call cargo clean >nul 2>nul
+popd
 
 echo.
-echo ====================================================================
-echo    Instalacion y limpieza completadas con exito.
-echo    Puedes cerrar esta ventana y ejecutar "Iniciar_Automatizador.bat"
-echo    para tu uso diario.
-echo ====================================================================
+echo ============================================================
+echo   Instalacion limpia completada.
+echo   Para iniciar: Iniciar_Automatizador.bat
+echo ============================================================
 pause

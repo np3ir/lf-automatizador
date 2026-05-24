@@ -1,51 +1,55 @@
-#!/bin/bash
-# ╔══════════════════════════════════════════════════════════════════════╗
-# ║              LF Automatizador — Iniciar (Linux)                     ║
-# ║                                                                      ║
-# ║  Acceso directo para ejecutar el programa.                           ║
-# ║  Si es la primera vez, ejecuta antes: ./instalar_dependencias.sh     ║
-# ╚══════════════════════════════════════════════════════════════════════╝
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Ir al directorio del proyecto (donde está este script)
+# LF Automatizador - iniciar en Linux.
+# Si los modulos nativos no coinciden con Electron, los recompila antes de abrir.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Advertencia si se detecta carpeta compartida de VirtualBox
 if df -T "$SCRIPT_DIR" 2>/dev/null | grep -q "vboxsf" || [[ "$SCRIPT_DIR" == *"/media/sf_"* ]] || [[ "$SCRIPT_DIR" == *"/mnt/sf_"* ]]; then
     echo ""
-    echo -e "\033[1;33m╔══════════════════════════════════════════════════════════════════════╗\033[0m"
-    echo -e "\033[1;33m║  ⚠️  ADVERTENCIA: Carpeta compartida de VirtualBox detectada         ║\033[0m"
-    echo -e "\033[1;33m╠══════════════════════════════════════════════════════════════════════╣\033[0m"
-    echo -e "\033[1;33m║  Se ha detectado que está usando una máquina virtual con carpeta     ║\033[0m"
-    echo -e "\033[1;33m║  compartida. Las dependencias se instalarán, pero NO se garantiza   ║\033[0m"
-    echo -e "\033[1;33m║  el funcionamiento correcto del software en este entorno.            ║\033[0m"
-    echo -e "\033[1;33m║                                                                      ║\033[0m"
-    echo -e "\033[1;33m║  Para un funcionamiento óptimo, copie el proyecto directamente       ║\033[0m"
-    echo -e "\033[1;33m║  al disco local de su máquina virtual Linux.                         ║\033[0m"
-    echo -e "\033[1;33m╚══════════════════════════════════════════════════════════════════════╝\033[0m"
+    echo "AVISO: carpeta compartida de VirtualBox detectada."
+    echo "Para mejor rendimiento, copia el proyecto al disco local de Linux."
     echo ""
 fi
 
-# Cargar entorno de Rust si existe (por si se instaló con rustup)
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 
-# Verificación rápida de lo mínimo necesario
-if ! command -v node &> /dev/null; then
-    echo "❌ Node.js no está instalado."
-    echo "   Ejecuta primero: ./instalar_dependencias.sh"
+if ! command -v node >/dev/null 2>&1; then
+    echo "ERROR: Node.js no esta instalado."
+    echo "Ejecuta primero: ./instalar_dependencias.sh"
     exit 1
 fi
 
-if [ ! -d "node_modules" ]; then
-    echo "❌ node_modules no encontrado."
-    echo "   Ejecuta primero: ./instalar_dependencias.sh"
+if ! command -v npm >/dev/null 2>&1; then
+    echo "ERROR: npm no esta disponible."
+    echo "Ejecuta primero: ./instalar_dependencias.sh"
     exit 1
 fi
 
-# Arrancar Electron
-echo "🚀 Iniciando LF Automatizador..."
-if [ "$EUID" -eq 0 ] || [ "$(id -u)" -eq 0 ]; then
-    echo "⚠️  Ejecutando como root — añadiendo --no-sandbox para Chromium."
+if [ ! -d "node_modules" ] || [ ! -d "node_modules/electron" ]; then
+    echo "ERROR: faltan dependencias Node."
+    echo "Ejecuta primero: ./instalar_dependencias.sh"
+    exit 1
+fi
+
+ELECTRON_VERSION="$(node -p "require('./node_modules/electron/package.json').version")"
+SQLITE_VERSION="$(node -p "require('./node_modules/better-sqlite3/package.json').version")"
+BUILD_PLATFORM="$(node -p "process.platform + '-' + process.arch")"
+BUILD_DIR=".native-build"
+BUILD_MARKER="$BUILD_DIR/$BUILD_PLATFORM-electron-$ELECTRON_VERSION-better-sqlite3-$SQLITE_VERSION.ok"
+
+if [ ! -f "$BUILD_MARKER" ]; then
+    echo "Preparando modulos nativos para Electron $ELECTRON_VERSION..."
+    mkdir -p "$BUILD_DIR"
+    npx electron-rebuild -f -w better-sqlite3
+    touch "$BUILD_MARKER"
+fi
+
+echo "Iniciando LF Automatizador..."
+if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+    echo "AVISO: ejecutando como root; se agrega --no-sandbox para Chromium."
     npx electron . --no-sandbox "$@"
 else
     npx electron . "$@"
