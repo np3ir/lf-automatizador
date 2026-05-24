@@ -21,10 +21,15 @@ if %errorlevel% neq 0 (
 echo Verificando instalacion de Cargo ^(Rust^)...
 cargo -V >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Cargo ^(Rust^) no esta instalado.
-    echo Por favor, instala Rust e intenta nuevamente.
-    pause
-    exit /b 1
+    echo [INFO] Cargo ^(Rust^) no esta instalado. Procediendo a instalarlo automaticamente...
+    echo Descargando instalador de Rust...
+    powershell -Command "Invoke-WebRequest -Uri 'https://win.rustup.rs/' -OutFile 'rustup-init.exe'"
+    echo Instalando Rust de forma silenciosa...
+    rustup-init.exe -y -q
+    del rustup-init.exe
+    echo Rust instalado correctamente.
+    :: Añadir Rust al PATH temporalmente para que el script pueda continuar inmediatamente
+    set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 )
 
 echo.
