@@ -3,9 +3,10 @@ cd "$(dirname "$0")"
 
 echo "Iniciando LF Automatizador 0.9.0..."
 
-# Arrancar en segundo plano y guardar la salida en un archivo de log
-npm start > error_log.txt 2>&1 &
+# Arrancar en segundo plano, completamente desvinculado de la terminal
+nohup npm start > error_log.txt 2>&1 < /dev/null &
 PID=$!
+disown $PID
 
 # Esperar 4 segundos para validar que haya arrancado sin crashear
 sleep 4
