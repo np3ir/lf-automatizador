@@ -19,127 +19,145 @@ echo.
 :: 1. Verificando Node.js
 echo [1/6] Verificando instalacion de Node.js...
 node -v >nul 2>&1
-if %errorlevel% neq 0 (
-    color 0C
-    echo [ERROR CRITICO] Node.js no esta instalado o no fue detectado en el sistema.
-    echo El programa requiere Node.js ^(version 18 o superior^) para funcionar.
-    echo Por favor, descargalo e instalalo desde: https://nodejs.org/
-    echo Asegurate de marcar la opcion "Add to PATH" durante la instalacion.
-    echo.
-    pause
-    exit /b 1
-) else (
-    for /f "tokens=*" %%v in ('node -v') do set NODE_VERSION=%%v
-    echo [OK] Node.js !NODE_VERSION! detectado correctamente.
-)
+if %errorlevel% equ 0 goto node_ok
+
+color 0C
+echo [ERROR CRITICO] Node.js no esta instalado o no fue detectado en el sistema.
+echo El programa requiere Node.js (version 18 o superior) para funcionar.
+echo Por favor, descargalo e instalalo desde: https://nodejs.org/
+echo Asegurate de marcar la opcion "Add to PATH" durante la instalacion.
 echo.
+pause
+exit /b 1
+
+:node_ok
+for /f "tokens=*" %%v in ('node -v') do set NODE_VERSION=%%v
+echo [OK] Node.js !NODE_VERSION! detectado correctamente.
+echo.
+
 
 :: 2. Verificando/Instalando Rust (GNU)
 echo [2/6] Verificando entorno de compilacion Rust...
 cargo -V >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [INFO] Rust no esta instalado. Se procedera con la descarga e instalacion automatica.
-    echo [INFO] Descargando instalador de Rust ^(esto requiere conexion a internet^)...
-    powershell -Command "Invoke-WebRequest -Uri 'https://win.rustup.rs/' -OutFile 'rustup-init.exe'"
-    if not exist "rustup-init.exe" (
-        color 0C
-        echo [ERROR] No se pudo descargar el instalador de Rust. Verifica tu conexion a internet.
-        pause
-        exit /b 1
-    )
-    
-    echo [INFO] Instalando Rust ^(Version GNU ligera, esto puede tardar unos minutos^)...
-    rustup-init.exe -y --default-host x86_64-pc-windows-gnu --profile minimal
-    del rustup-init.exe
-    
-    :: Asegurar PATH temporal para esta sesion
-    set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
-    
-    cargo -V >nul 2>&1
-    if !errorlevel! neq 0 (
-        color 0C
-        echo [ERROR] La instalacion de Rust fallo o no se configuro correctamente.
-        pause
-        exit /b 1
-    )
-    echo [OK] Rust instalado correctamente.
-) else (
-    echo [OK] Rust detectado. Configurando compatibilidad GNU...
-    rustup default stable-gnu >nul 2>&1
-)
+if %errorlevel% equ 0 goto rust_ok
+
+echo [INFO] Rust no esta instalado. Se procedera con la descarga e instalacion automatica.
+echo [INFO] Descargando instalador de Rust (esto requiere conexion a internet)...
+powershell -Command "Invoke-WebRequest -Uri 'https://win.rustup.rs/' -OutFile 'rustup-init.exe'"
+if exist "rustup-init.exe" goto rust_download_ok
+
+color 0C
+echo [ERROR] No se pudo descargar el instalador de Rust. Verifica tu conexion a internet.
+pause
+exit /b 1
+
+:rust_download_ok
+echo [INFO] Instalando Rust (Version GNU ligera, esto puede tardar unos minutos)...
+rustup-init.exe -y --default-host x86_64-pc-windows-gnu --profile minimal
+del rustup-init.exe
+
+:: Asegurar PATH temporal para esta sesion
+set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+
+cargo -V >nul 2>&1
+if %errorlevel% equ 0 goto rust_installed_ok
+
+color 0C
+echo [ERROR] La instalacion de Rust fallo o no se configuro correctamente.
+pause
+exit /b 1
+
+:rust_installed_ok
+echo [OK] Rust instalado correctamente.
+goto rust_done
+
+:rust_ok
+echo [OK] Rust detectado. Configurando compatibilidad GNU...
+rustup default stable-gnu >nul 2>&1
+
+:rust_done
 echo.
+
 
 :: 3. Verificando/Instalando compilador C/C++ ligero (w64devkit)
 echo [3/6] Preparando entorno C/C++ para dependencias nativas...
 set "W64_BIN=%USERPROFILE%\w64devkit\bin"
 set "W64_LIB=%USERPROFILE%\w64devkit\x86_64-w64-mingw32\lib"
 
-if not exist "%W64_BIN%\gcc.exe" (
-    echo [INFO] El compilador C/C++ ligero no esta instalado.
-    echo [INFO] Descargando compilador portatil ^(aprox. 80MB^). Por favor espera...
-    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/skeeto/w64devkit/releases/download/v1.20.0/w64devkit-1.20.0.zip' -OutFile 'w64devkit.zip'"
-    
-    if not exist "w64devkit.zip" (
-        color 0C
-        echo [ERROR] Fallo la descarga del compilador. Verifica tu conexion a internet.
-        pause
-        exit /b 1
-    )
+if exist "%W64_BIN%\gcc.exe" goto gcc_ok
 
-    echo [INFO] Extrayendo compilador en tu carpeta de usuario. Esto puede tomar un minuto...
-    powershell -Command "Expand-Archive -Path 'w64devkit.zip' -DestinationPath '%USERPROFILE%\' -Force"
-    del w64devkit.zip
-    
-    if not exist "%W64_BIN%\gcc.exe" (
-        color 0C
-        echo [ERROR] La extraccion del compilador fallo.
-        pause
-        exit /b 1
-    )
-    echo [OK] Compilador C/C++ instalado correctamente.
-) else (
-    echo [OK] Compilador C/C++ detectado.
-)
+echo [INFO] El compilador C/C++ ligero no esta instalado.
+echo [INFO] Descargando compilador portatil (aprox. 80MB). Por favor espera...
+powershell -Command "Invoke-WebRequest -Uri 'https://github.com/skeeto/w64devkit/releases/download/v1.20.0/w64devkit-1.20.0.zip' -OutFile 'w64devkit.zip'"
 
+if exist "w64devkit.zip" goto gcc_download_ok
+
+color 0C
+echo [ERROR] Fallo la descarga del compilador. Verifica tu conexion a internet.
+pause
+exit /b 1
+
+:gcc_download_ok
+echo [INFO] Extrayendo compilador en tu carpeta de usuario. Esto puede tomar un minuto...
+powershell -Command "Expand-Archive -Path 'w64devkit.zip' -DestinationPath '%USERPROFILE%\' -Force"
+del w64devkit.zip
+
+if exist "%W64_BIN%\gcc.exe" goto gcc_extracted_ok
+
+color 0C
+echo [ERROR] La extraccion del compilador fallo.
+pause
+exit /b 1
+
+:gcc_extracted_ok
+echo [OK] Compilador C/C++ instalado correctamente.
+goto gcc_done
+
+:gcc_ok
+echo [OK] Compilador C/C++ detectado.
+
+:gcc_done
 :: Anadir w64devkit al PATH para compilacion nativa
 set "PATH=%W64_BIN%;%PATH%"
 
 :: Aplicar fix para el error "-lgcc_eh" comun en Rust GNU con w64devkit
-if exist "%W64_LIB%" (
-    if not exist "%W64_LIB%\libgcc_eh.a" (
-        echo [INFO] Aplicando parche de compatibilidad interna para el linker (libgcc_eh)...
-        "%W64_BIN%\ar.exe" rc "%W64_LIB%\libgcc_eh.a" 2>nul
-    )
-) else (
-    if exist "%USERPROFILE%\w64devkit\lib" (
-        if not exist "%USERPROFILE%\w64devkit\lib\libgcc_eh.a" (
-            echo [INFO] Aplicando parche de compatibilidad interna para el linker (libgcc_eh)...
-            "%W64_BIN%\ar.exe" rc "%USERPROFILE%\w64devkit\lib\libgcc_eh.a" 2>nul
-        )
-    )
-)
+if not exist "%W64_LIB%" goto fix_fallback
+if exist "%W64_LIB%\libgcc_eh.a" goto fix_done
+echo [INFO] Aplicando parche de compatibilidad interna para el linker (libgcc_eh)...
+"%W64_BIN%\ar.exe" rc "%W64_LIB%\libgcc_eh.a" 2>nul
+goto fix_done
+
+:fix_fallback
+if not exist "%USERPROFILE%\w64devkit\lib" goto fix_done
+if exist "%USERPROFILE%\w64devkit\lib\libgcc_eh.a" goto fix_done
+echo [INFO] Aplicando parche de compatibilidad interna para el linker (libgcc_eh)...
+"%W64_BIN%\ar.exe" rc "%USERPROFILE%\w64devkit\lib\libgcc_eh.a" 2>nul
+
+:fix_done
 echo.
+
 
 :: 4. Instalando dependencias de Node.js
 echo [4/6] Instalando dependencias del entorno Node.js...
 echo [INFO] Descargando e instalando paquetes...
 echo [INFO] Por favor, ten paciencia, puede tomar varios minutos. No te preocupes por las advertencias (WARN).
 call npm install
-if %errorlevel% neq 0 (
-    color 0E
-    echo [ADVERTENCIA] Hubo errores al instalar paquetes, intentando continuar de todas formas...
-)
+if %errorlevel% equ 0 goto npm_ok
+color 0E
+echo [ADVERTENCIA] Hubo errores al instalar paquetes, intentando continuar de todas formas...
+:npm_ok
 
 echo.
 echo [INFO] Preparando librerias nativas de Node... ESTO PUEDE TOMAR BASTANTE TIEMPO.
 echo [INFO] La consola puede parecer congelada. NO LA CIERRES.
 call npx electron-rebuild
-if %errorlevel% neq 0 (
-    color 0E
-    echo [ADVERTENCIA] electron-rebuild reporto un error, pero podria ser no critico.
-)
+if %errorlevel% equ 0 goto rebuild_ok
+color 0E
+echo [ADVERTENCIA] electron-rebuild reporto un error, pero podria ser no critico.
+:rebuild_ok
 echo [OK] Dependencias de Node.js listas.
 echo.
+
 
 :: 5. Compilando motor de audio Rust
 echo [5/6] Compilando el Motor de Audio interno...
@@ -149,16 +167,17 @@ echo [INFO] Por favor espera a que aparezca "Finalizado".
 
 cd audio-engine-rust
 call cargo build --release
-if %errorlevel% neq 0 (
-    color 0C
-    echo.
-    echo [ERROR CRITICO] Fallo la compilacion del motor de audio en Rust.
-    echo Revisa si hay errores mas arriba. El programa necesita este motor.
-    cd ..
-    pause
-    exit /b 1
-)
+if %errorlevel% equ 0 goto cargo_ok
 
+color 0C
+echo.
+echo [ERROR CRITICO] Fallo la compilacion del motor de audio en Rust.
+echo Revisa si hay errores mas arriba. El programa necesita este motor.
+cd ..
+pause
+exit /b 1
+
+:cargo_ok
 echo [OK] Compilacion finalizada correctamente.
 echo [INFO] Guardando el ejecutable optimizado...
 if not exist "..\bin" mkdir "..\bin"
@@ -168,6 +187,7 @@ echo [INFO] Limpiando archivos temporales pesados para ahorrar espacio en disco.
 call cargo clean >nul 2>&1
 cd ..
 echo.
+
 
 :: 6. Limpieza final
 echo [6/6] Tareas finales de limpieza y optimizacion...
@@ -187,3 +207,4 @@ echo Iniciando programa en 3 segundos...
 timeout /t 3 >nul
 start "" "Iniciar automatizador 0.9.0.bat"
 exit
+
