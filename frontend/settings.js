@@ -246,6 +246,7 @@ if (txtWeatherCity) {
     } catch(e) {}
 
     let suggestTimeout;
+    let weatherSuggestionsMap = new Map();
     txtWeatherCity.addEventListener('input', () => {
         clearTimeout(suggestTimeout);
         const query = txtWeatherCity.value.trim();
@@ -257,10 +258,13 @@ if (txtWeatherCity) {
                 const datalist = document.getElementById('weather-city-suggestions');
                 if (datalist && data.results) {
                     datalist.innerHTML = '';
+                    weatherSuggestionsMap.clear();
                     data.results.forEach(r => {
                         const opt = document.createElement('option');
                         const admin = r.admin1 ? `, ${r.admin1}` : '';
-                        opt.value = `${r.name}${admin}, ${r.country_code}`;
+                        const label = `${r.name}${admin}, ${r.country_code}`;
+                        opt.value = label;
+                        weatherSuggestionsMap.set(label, { lat: r.latitude, lon: r.longitude });
                         datalist.appendChild(opt);
                     });
                 }
@@ -276,17 +280,26 @@ if (txtWeatherCity) {
         lblWeatherHum.innerText = '...';
         
         try {
-            const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=es&format=json`);
-            const geoData = await geoRes.json();
-            
-            if (!geoData.results || geoData.results.length === 0) {
-                lblWeatherTemp.innerText = '--';
-                lblWeatherHum.innerText = '--';
-                alert('No se encontro la ciudad.');
-                return;
+            let latitude, longitude;
+            if (weatherSuggestionsMap.has(city)) {
+                const coords = weatherSuggestionsMap.get(city);
+                latitude = coords.lat;
+                longitude = coords.lon;
+            } else {
+                const queryCity = city.split(',')[0].trim();
+                const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(queryCity)}&count=1&language=es&format=json`);
+                const geoData = await geoRes.json();
+                
+                if (!geoData.results || geoData.results.length === 0) {
+                    lblWeatherTemp.innerText = '--';
+                    lblWeatherHum.innerText = '--';
+                    alert('No se encontro la ciudad.');
+                    return;
+                }
+                latitude = geoData.results[0].latitude;
+                longitude = geoData.results[0].longitude;
             }
             
-            const { latitude, longitude } = geoData.results[0];
             const unitStr = selWeatherUnit.value === 'imperial' ? 'fahrenheit' : 'celsius';
             const unitSym = selWeatherUnit.value === 'imperial' ? '°F' : '°C';
             

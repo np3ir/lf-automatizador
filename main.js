@@ -619,7 +619,7 @@ const configDir = path.join(__dirname, 'config');
 if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
 
 const uiPrefsPath = path.join(configDir, 'ui_prefs.json');
-let uiPrefs = { menuVisible: false, controlsPos: 'bottom', temp: true, hum: true, leftPanel: true, ext: false, sysLog: true, showRemainingTime: false, cartwall: false };
+let uiPrefs = { menuVisible: true, controlsPos: 'bottom', temp: true, hum: true, leftPanel: true, ext: false, sysLog: true, showRemainingTime: false, cartwall: false };
 try { if (fs.existsSync(uiPrefsPath)) uiPrefs = { ...uiPrefs, ...JSON.parse(fs.readFileSync(uiPrefsPath, 'utf-8')) }; } catch(e) {}
 function saveUiPrefs() { try { fs.writeFileSync(uiPrefsPath, JSON.stringify(uiPrefs, null, 2)); } catch(e) {} }
 if (uiPrefs.cartwall) { uiPrefs.cartwall = false; saveUiPrefs(); }
