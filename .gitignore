@@ -37,6 +37,7 @@ cache/
 
 # Herramientas locales de copia/despliegue, no pertenecen al repo
 copiar.sh
+plan_reparacion_encoder.md
 
 # Local editor and OS noise
 .DS_Store
