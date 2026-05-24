@@ -12,7 +12,9 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::Device;
 use rodio::mixer::Mixer;
 use rodio::source::{SeekError, Zero};
-use rodio::{ChannelCount, Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Sample, SampleRate, Source};
+use rodio::{
+    ChannelCount, Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Sample, SampleRate, Source,
+};
 
 #[derive(Clone, Debug)]
 struct PlayerState {
@@ -275,6 +277,7 @@ struct PlaylistModeState {
     repeat_track: bool,
     remove_played: bool,
     loop_playlist: bool,
+    stop_after_current: bool,
     repeat_forget_protection_enabled: bool,
     repeat_forget_protection_max: u64,
     repeat_disable_on_manual_next: bool,
@@ -288,6 +291,7 @@ impl Default for PlaylistModeState {
             repeat_track: false,
             remove_played: false,
             loop_playlist: false,
+            stop_after_current: false,
             repeat_forget_protection_enabled: false,
             repeat_forget_protection_max: 10,
             repeat_disable_on_manual_next: true,
@@ -651,7 +655,11 @@ where
     S: Source<Item = Sample>,
 {
     fn new(source: S, params: Arc<DspParams>, gain_field: FaderGainField) -> Self {
-        Self { source, params, gain_field }
+        Self {
+            source,
+            params,
+            gain_field,
+        }
     }
 
     #[inline]
@@ -722,8 +730,7 @@ const EQ_MODULE_RAMP_INCREMENT: f32 = 1.0 / 256.0;
 /// actualizado para usar en la mezcla wet/dry del sample actual.
 #[inline]
 fn advance_eq_module_wet(wet_actual: &mut f32, params: &DspParams) -> f32 {
-    let target = f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed))
-        .clamp(0.0, 1.0);
+    let target = f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
     if *wet_actual < target {
         *wet_actual = (*wet_actual + EQ_MODULE_RAMP_INCREMENT).min(target);
     } else if *wet_actual > target {
@@ -760,9 +767,13 @@ where
 {
     #[allow(dead_code)]
     fn new(source: S, params: Arc<DspParams>) -> Self {
-        let initial_wet = f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
-        Self { source, params, wet_actual: initial_wet }
+        let initial_wet =
+            f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        Self {
+            source,
+            params,
+            wet_actual: initial_wet,
+        }
     }
 
     #[inline]
@@ -796,11 +807,21 @@ impl<S> Source for PreAmpSource<S>
 where
     S: Source<Item = Sample>,
 {
-    fn current_span_len(&self) -> Option<usize> { self.source.current_span_len() }
-    fn channels(&self) -> ChannelCount { self.source.channels() }
-    fn sample_rate(&self) -> SampleRate { self.source.sample_rate() }
-    fn total_duration(&self) -> Option<Duration> { self.source.total_duration() }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> { self.source.try_seek(pos) }
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
 }
 
 /// Pan estéreo con ley equal-power. Pertenece al módulo EQ → bypassed con el
@@ -825,9 +846,15 @@ where
     #[allow(dead_code)]
     fn new(source: S, params: Arc<DspParams>) -> Self {
         let channels = source.channels().get() as usize;
-        let initial_wet = f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
-        Self { source, params, sample_index: 0, channels: channels.max(1), wet_actual: initial_wet }
+        let initial_wet =
+            f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        Self {
+            source,
+            params,
+            sample_index: 0,
+            channels: channels.max(1),
+            wet_actual: initial_wet,
+        }
     }
 
     /// Devuelve (gain_L, gain_R) según el pan actual.
@@ -840,8 +867,7 @@ where
     /// por consolas broadcast y DAWs como ProTools en su "Stereo Balance".
     #[inline]
     fn read_pan_gains(&self) -> (f32, f32) {
-        let pan = f32::from_bits(self.params.pan_bits.load(Ordering::Relaxed))
-            .clamp(-1.0, 1.0);
+        let pan = f32::from_bits(self.params.pan_bits.load(Ordering::Relaxed)).clamp(-1.0, 1.0);
         let gain_l = if pan <= 0.0 { 1.0 } else { 1.0 - pan };
         let gain_r = if pan >= 0.0 { 1.0 } else { 1.0 + pan };
         (gain_l, gain_r)
@@ -878,11 +904,21 @@ impl<S> Source for PanSource<S>
 where
     S: Source<Item = Sample>,
 {
-    fn current_span_len(&self) -> Option<usize> { self.source.current_span_len() }
-    fn channels(&self) -> ChannelCount { self.source.channels() }
-    fn sample_rate(&self) -> SampleRate { self.source.sample_rate() }
-    fn total_duration(&self) -> Option<Duration> { self.source.total_duration() }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> { self.source.try_seek(pos) }
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
 }
 
 /// Mono pertenece al módulo EQ. El switch maestro del EQ tiene veto: si está
@@ -914,10 +950,10 @@ where
     #[allow(dead_code)]
     fn new(source: S, params: Arc<DspParams>) -> Self {
         let channels = source.channels().get() as usize;
-        let eq_wet = f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
-        let mono_intent = f32::from_bits(params.mono_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
+        let eq_wet =
+            f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        let mono_intent =
+            f32::from_bits(params.mono_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
         Self {
             source,
             params,
@@ -929,8 +965,8 @@ where
 
     #[inline]
     fn advance_wet(&mut self) {
-        let eq_wet = f32::from_bits(self.params.eq_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
+        let eq_wet =
+            f32::from_bits(self.params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
         let mono_intent = f32::from_bits(self.params.mono_wet_target_bits.load(Ordering::Relaxed))
             .clamp(0.0, 1.0);
         let target = eq_wet * mono_intent;
@@ -973,11 +1009,21 @@ impl<S> Source for MonoSource<S>
 where
     S: Source<Item = Sample>,
 {
-    fn current_span_len(&self) -> Option<usize> { self.source.current_span_len() }
-    fn channels(&self) -> ChannelCount { self.source.channels() }
-    fn sample_rate(&self) -> SampleRate { self.source.sample_rate() }
-    fn total_duration(&self) -> Option<Duration> { self.source.total_duration() }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> { self.source.try_seek(pos) }
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
 }
 
 // ============================================================================
@@ -1003,8 +1049,10 @@ where
 /// Estado de un biquad peaking single-band, single-channel.
 #[derive(Default, Clone)]
 struct BiquadChannel {
-    x1: f32, x2: f32,
-    y1: f32, y2: f32,
+    x1: f32,
+    x2: f32,
+    y1: f32,
+    y2: f32,
 }
 
 impl BiquadChannel {
@@ -1024,7 +1072,11 @@ impl BiquadChannel {
 struct EqBand {
     l: BiquadChannel,
     r: BiquadChannel,
-    b0: f32, b1: f32, b2: f32, a1: f32, a2: f32,
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a1: f32,
+    a2: f32,
 }
 
 impl EqBand {
@@ -1033,7 +1085,11 @@ impl EqBand {
         Self {
             l: BiquadChannel::default(),
             r: BiquadChannel::default(),
-            b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0,
+            b0: 1.0,
+            b1: 0.0,
+            b2: 0.0,
+            a1: 0.0,
+            a2: 0.0,
         }
     }
 
@@ -1089,16 +1145,22 @@ where
 {
     #[allow(dead_code)]
     fn new(source: S, params: Arc<DspParams>) -> Self {
-        let initial_wet = f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
+        let initial_wet =
+            f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
         let sample_rate = source.sample_rate().get() as f32;
         let channels = source.channels().get() as usize;
         let mut me = Self {
             source,
             params,
             bands: [
-                EqBand::new(), EqBand::new(), EqBand::new(), EqBand::new(),
-                EqBand::new(), EqBand::new(), EqBand::new(), EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
             ],
             wet_actual: initial_wet,
             sample_counter: 0,
@@ -1114,15 +1176,16 @@ where
         for i in 0..8 {
             let freq = f32::from_bits(self.params.eq_bands[i].freq_hz_bits.load(Ordering::Relaxed));
             let q = f32::from_bits(self.params.eq_bands[i].q_bits.load(Ordering::Relaxed));
-            let gain_db = f32::from_bits(self.params.eq_bands[i].gain_db_bits.load(Ordering::Relaxed));
+            let gain_db =
+                f32::from_bits(self.params.eq_bands[i].gain_db_bits.load(Ordering::Relaxed));
             self.bands[i].update_coeffs(freq, q, gain_db, self.sample_rate);
         }
     }
 
     #[inline]
     fn advance_wet(&mut self) {
-        let target = f32::from_bits(self.params.eq_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
+        let target =
+            f32::from_bits(self.params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
         if self.wet_actual < target {
             self.wet_actual = (self.wet_actual + EQ_RAMP_INCREMENT).min(target);
         } else if self.wet_actual > target {
@@ -1149,8 +1212,11 @@ where
         let mut processed = sample;
         let use_left = self.channels < 2 || self.channel_index == 0;
         for band in self.bands.iter_mut() {
-            let b0 = band.b0; let b1 = band.b1; let b2 = band.b2;
-            let a1 = band.a1; let a2 = band.a2;
+            let b0 = band.b0;
+            let b1 = band.b1;
+            let b2 = band.b2;
+            let a1 = band.a1;
+            let a2 = band.a2;
             processed = if use_left {
                 band.l.process(processed, b0, b1, b2, a1, a2)
             } else {
@@ -1174,11 +1240,21 @@ impl<S> Source for EqChainSource<S>
 where
     S: Source<Item = Sample>,
 {
-    fn current_span_len(&self) -> Option<usize> { self.source.current_span_len() }
-    fn channels(&self) -> ChannelCount { self.source.channels() }
-    fn sample_rate(&self) -> SampleRate { self.source.sample_rate() }
-    fn total_duration(&self) -> Option<Duration> { self.source.total_duration() }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> { self.source.try_seek(pos) }
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
 }
 
 // ============================================================================
@@ -1219,7 +1295,7 @@ where
 }
 
 const COMPRESSOR_RAMP_INCREMENT: f32 = 1.0 / 256.0; // ~5.8 ms @ 44.1 kHz
-const COMPRESSOR_REFRESH_SAMPLES: u32 = 1024;        // ~12 ms
+const COMPRESSOR_REFRESH_SAMPLES: u32 = 1024; // ~12 ms
 
 impl<S> CompressorSource<S>
 where
@@ -1227,8 +1303,8 @@ where
 {
     #[allow(dead_code)]
     fn new(source: S, params: Arc<DspParams>) -> Self {
-        let initial_wet = f32::from_bits(params.comp_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
+        let initial_wet =
+            f32::from_bits(params.comp_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
         let sample_rate = source.sample_rate().get() as f32;
         let mut me = Self {
             source,
@@ -1249,10 +1325,11 @@ where
     }
 
     fn refresh_cached_params(&mut self) {
-        let threshold_db = f32::from_bits(self.params.comp_threshold_db_bits.load(Ordering::Relaxed))
-            .clamp(-60.0, 0.0);
-        let ratio = f32::from_bits(self.params.comp_ratio_bits.load(Ordering::Relaxed))
-            .clamp(1.0, 20.0);
+        let threshold_db =
+            f32::from_bits(self.params.comp_threshold_db_bits.load(Ordering::Relaxed))
+                .clamp(-60.0, 0.0);
+        let ratio =
+            f32::from_bits(self.params.comp_ratio_bits.load(Ordering::Relaxed)).clamp(1.0, 20.0);
         let attack_ms = f32::from_bits(self.params.comp_attack_ms_bits.load(Ordering::Relaxed))
             .clamp(0.1, 500.0);
         let release_ms = f32::from_bits(self.params.comp_release_ms_bits.load(Ordering::Relaxed))
@@ -1330,11 +1407,21 @@ impl<S> Source for CompressorSource<S>
 where
     S: Source<Item = Sample>,
 {
-    fn current_span_len(&self) -> Option<usize> { self.source.current_span_len() }
-    fn channels(&self) -> ChannelCount { self.source.channels() }
-    fn sample_rate(&self) -> SampleRate { self.source.sample_rate() }
-    fn total_duration(&self) -> Option<Duration> { self.source.total_duration() }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> { self.source.try_seek(pos) }
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
 }
 
 // ============================================================================
@@ -1371,8 +1458,8 @@ where
 {
     #[allow(dead_code)]
     fn new(source: S, params: Arc<DspParams>) -> Self {
-        let initial_wet = f32::from_bits(params.limiter_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
+        let initial_wet =
+            f32::from_bits(params.limiter_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
         Self {
             source,
             params,
@@ -1430,11 +1517,21 @@ impl<S> Source for LimiterSource<S>
 where
     S: Source<Item = Sample>,
 {
-    fn current_span_len(&self) -> Option<usize> { self.source.current_span_len() }
-    fn channels(&self) -> ChannelCount { self.source.channels() }
-    fn sample_rate(&self) -> SampleRate { self.source.sample_rate() }
-    fn total_duration(&self) -> Option<Duration> { self.source.total_duration() }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> { self.source.try_seek(pos) }
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
 }
 
 // ============================================================================
@@ -1507,14 +1604,14 @@ where
         let sample_rate = source.sample_rate().get() as f32;
         let channels = source.channels().get() as usize;
 
-        let initial_eq_wet = f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
-        let initial_mono_intent = f32::from_bits(params.mono_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
-        let initial_comp_wet = f32::from_bits(params.comp_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
-        let initial_lim_wet = f32::from_bits(params.limiter_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
+        let initial_eq_wet =
+            f32::from_bits(params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        let initial_mono_intent =
+            f32::from_bits(params.mono_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        let initial_comp_wet =
+            f32::from_bits(params.comp_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        let initial_lim_wet =
+            f32::from_bits(params.limiter_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
 
         let mut me = Self {
             source,
@@ -1525,8 +1622,14 @@ where
             eq_meta_wet_actual: initial_eq_wet,
             mono_wet_actual: initial_eq_wet * initial_mono_intent,
             eq_bands: [
-                EqBand::new(), EqBand::new(), EqBand::new(), EqBand::new(),
-                EqBand::new(), EqBand::new(), EqBand::new(), EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
+                EqBand::new(),
             ],
             eq_sample_counter: 0,
             comp_envelope: 0.0,
@@ -1553,42 +1656,46 @@ where
         for i in 0..8 {
             let freq = f32::from_bits(self.params.eq_bands[i].freq_hz_bits.load(Ordering::Relaxed));
             let q = f32::from_bits(self.params.eq_bands[i].q_bits.load(Ordering::Relaxed));
-            let gain_db = f32::from_bits(self.params.eq_bands[i].gain_db_bits.load(Ordering::Relaxed));
+            let gain_db =
+                f32::from_bits(self.params.eq_bands[i].gain_db_bits.load(Ordering::Relaxed));
             self.eq_bands[i].update_coeffs(freq, q, gain_db, self.sample_rate);
         }
     }
 
     #[inline]
     fn advance_eq_wet(&mut self) {
-        let target = f32::from_bits(self.params.eq_wet_target_bits.load(Ordering::Relaxed))
-            .clamp(0.0, 1.0);
+        let target =
+            f32::from_bits(self.params.eq_wet_target_bits.load(Ordering::Relaxed)).clamp(0.0, 1.0);
         if self.eq_meta_wet_actual < target {
-            self.eq_meta_wet_actual = (self.eq_meta_wet_actual + EQ_MODULE_RAMP_INCREMENT).min(target);
+            self.eq_meta_wet_actual =
+                (self.eq_meta_wet_actual + EQ_MODULE_RAMP_INCREMENT).min(target);
         } else if self.eq_meta_wet_actual > target {
-            self.eq_meta_wet_actual = (self.eq_meta_wet_actual - EQ_MODULE_RAMP_INCREMENT).max(target);
+            self.eq_meta_wet_actual =
+                (self.eq_meta_wet_actual - EQ_MODULE_RAMP_INCREMENT).max(target);
         }
         let mono_intent = f32::from_bits(self.params.mono_wet_target_bits.load(Ordering::Relaxed))
             .clamp(0.0, 1.0);
         let mono_target = self.eq_meta_wet_actual * mono_intent;
         if self.mono_wet_actual < mono_target {
-            self.mono_wet_actual = (self.mono_wet_actual + EQ_MODULE_RAMP_INCREMENT).min(mono_target);
+            self.mono_wet_actual =
+                (self.mono_wet_actual + EQ_MODULE_RAMP_INCREMENT).min(mono_target);
         } else if self.mono_wet_actual > mono_target {
-            self.mono_wet_actual = (self.mono_wet_actual - EQ_MODULE_RAMP_INCREMENT).max(mono_target);
+            self.mono_wet_actual =
+                (self.mono_wet_actual - EQ_MODULE_RAMP_INCREMENT).max(mono_target);
         }
     }
 
     #[inline]
     fn read_preamp_linear(&self) -> f32 {
-        let db = f32::from_bits(self.params.preamp_db_bits.load(Ordering::Relaxed))
-            .clamp(-24.0, 24.0);
+        let db =
+            f32::from_bits(self.params.preamp_db_bits.load(Ordering::Relaxed)).clamp(-24.0, 24.0);
         10f32.powf(db / 20.0)
     }
 
     #[inline]
     fn read_pan_gains(&self) -> (f32, f32) {
         // Ley balance lineal: pan=0 → (1.0, 1.0) unity perfecto.
-        let pan = f32::from_bits(self.params.pan_bits.load(Ordering::Relaxed))
-            .clamp(-1.0, 1.0);
+        let pan = f32::from_bits(self.params.pan_bits.load(Ordering::Relaxed)).clamp(-1.0, 1.0);
         let gain_l = if pan <= 0.0 { 1.0 } else { 1.0 - pan };
         let gain_r = if pan >= 0.0 { 1.0 } else { 1.0 + pan };
         (gain_l, gain_r)
@@ -1634,8 +1741,11 @@ where
         let mut l_eq = l;
         let mut r_eq = r;
         for band in self.eq_bands.iter_mut() {
-            let b0 = band.b0; let b1 = band.b1; let b2 = band.b2;
-            let a1 = band.a1; let a2 = band.a2;
+            let b0 = band.b0;
+            let b1 = band.b1;
+            let b2 = band.b2;
+            let a1 = band.a1;
+            let a2 = band.a2;
             l_eq = band.l.process(l_eq, b0, b1, b2, a1, a2);
             r_eq = band.r.process(r_eq, b0, b1, b2, a1, a2);
         }
@@ -1647,10 +1757,11 @@ where
     // ── Compressor helpers ───────────────────────────────────────────────
 
     fn refresh_comp_params(&mut self) {
-        let threshold_db = f32::from_bits(self.params.comp_threshold_db_bits.load(Ordering::Relaxed))
-            .clamp(-60.0, 0.0);
-        let ratio = f32::from_bits(self.params.comp_ratio_bits.load(Ordering::Relaxed))
-            .clamp(1.0, 20.0);
+        let threshold_db =
+            f32::from_bits(self.params.comp_threshold_db_bits.load(Ordering::Relaxed))
+                .clamp(-60.0, 0.0);
+        let ratio =
+            f32::from_bits(self.params.comp_ratio_bits.load(Ordering::Relaxed)).clamp(1.0, 20.0);
         let attack_ms = f32::from_bits(self.params.comp_attack_ms_bits.load(Ordering::Relaxed))
             .clamp(0.1, 500.0);
         let release_ms = f32::from_bits(self.params.comp_release_ms_bits.load(Ordering::Relaxed))
@@ -1756,9 +1867,21 @@ where
         for i in 0..3_u32 {
             let idx = (order >> (i * 2)) & 0b11;
             match idx {
-                0 => { let (nl, nr) = self.process_eq_block(l, r); l = nl; r = nr; }
-                1 => { let (nl, nr) = self.process_comp_block(l, r); l = nl; r = nr; }
-                2 => { let (nl, nr) = self.process_lim_block(l, r); l = nl; r = nr; }
+                0 => {
+                    let (nl, nr) = self.process_eq_block(l, r);
+                    l = nl;
+                    r = nr;
+                }
+                1 => {
+                    let (nl, nr) = self.process_comp_block(l, r);
+                    l = nl;
+                    r = nr;
+                }
+                2 => {
+                    let (nl, nr) = self.process_lim_block(l, r);
+                    l = nl;
+                    r = nr;
+                }
                 _ => {}
             }
         }
@@ -1798,11 +1921,21 @@ impl<S> Source for DynamicDspSource<S>
 where
     S: Source<Item = Sample>,
 {
-    fn current_span_len(&self) -> Option<usize> { self.source.current_span_len() }
-    fn channels(&self) -> ChannelCount { self.source.channels() }
-    fn sample_rate(&self) -> SampleRate { self.source.sample_rate() }
-    fn total_duration(&self) -> Option<Duration> { self.source.total_duration() }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> { self.source.try_seek(pos) }
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
 }
 
 // ============================================================================
@@ -1858,11 +1991,21 @@ impl<S> Source for MultiTeeSource<S>
 where
     S: Source<Item = Sample>,
 {
-    fn current_span_len(&self) -> Option<usize> { self.source.current_span_len() }
-    fn channels(&self) -> ChannelCount { self.source.channels() }
-    fn sample_rate(&self) -> SampleRate { self.source.sample_rate() }
-    fn total_duration(&self) -> Option<Duration> { self.source.total_duration() }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> { self.source.try_seek(pos) }
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
 }
 
 /// Umbral por encima del cual el TapConsumerSource entiende que el productor
@@ -1879,17 +2022,21 @@ where
 /// audible. 23 ms cubre el peak-to-peak observado en máquinas Windows con
 /// WASAPI y aún es indetectable como latencia (consola física tolera 30-50 ms
 /// de delay entre PGM y Booth sin ser molesto al operador).
-const TAP_DRAIN_TARGET_SAMPLES: usize = 2_048;   // ~23 ms estéreo @ 44.1 kHz
+const TAP_DRAIN_TARGET_SAMPLES: usize = 2_048; // ~23 ms estéreo @ 44.1 kHz
 
 /// Helper: dropea samples del ring en pares (preserva fase L-R) hasta
 /// dejar a lo sumo `target` samples disponibles.
 #[inline]
 fn drain_to_target(consumer: &mut rtrb::Consumer<Sample>, target: usize) {
     let available = consumer.slots();
-    if available <= target { return; }
+    if available <= target {
+        return;
+    }
     let mut to_drop = (available - target) & !1;
     while to_drop > 0 {
-        if consumer.pop().is_err() { break; }
+        if consumer.pop().is_err() {
+            break;
+        }
         to_drop -= 1;
     }
 }
@@ -1903,7 +2050,7 @@ struct DualTapConsumerSource {
     pre_consumer: rtrb::Consumer<Sample>,
     post_consumer: rtrb::Consumer<Sample>,
     mode_atom: Arc<DspParams>, // contiene el atómico que decide pre/post
-    is_monitor: bool,           // true = lee monitor_tap_mode; false = encoder_tap_mode
+    is_monitor: bool,          // true = lee monitor_tap_mode; false = encoder_tap_mode
     channels: ChannelCount,
     sample_rate: SampleRate,
 }
@@ -1917,7 +2064,14 @@ impl DualTapConsumerSource {
         channels: ChannelCount,
         sample_rate: SampleRate,
     ) -> Self {
-        Self { pre_consumer, post_consumer, mode_atom: params, is_monitor, channels, sample_rate }
+        Self {
+            pre_consumer,
+            post_consumer,
+            mode_atom: params,
+            is_monitor,
+            channels,
+            sample_rate,
+        }
     }
 
     #[inline]
@@ -1952,12 +2106,22 @@ impl Iterator for DualTapConsumerSource {
 }
 
 impl Source for DualTapConsumerSource {
-    fn current_span_len(&self) -> Option<usize> { None }
-    fn channels(&self) -> ChannelCount { self.channels }
-    fn sample_rate(&self) -> SampleRate { self.sample_rate }
-    fn total_duration(&self) -> Option<Duration> { None }
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> ChannelCount {
+        self.channels
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.sample_rate
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
     fn try_seek(&mut self, _: Duration) -> Result<(), SeekError> {
-        Err(SeekError::NotSupported { underlying_source: "DualTapConsumerSource" })
+        Err(SeekError::NotSupported {
+            underlying_source: "DualTapConsumerSource",
+        })
     }
 }
 
@@ -1987,13 +2151,17 @@ struct PlayerMeter {
 
 impl PlayerMeter {
     fn reset(&self) {
-        self.left_peak_bits.store(0.0f32.to_bits(), Ordering::Relaxed);
-        self.right_peak_bits.store(0.0f32.to_bits(), Ordering::Relaxed);
+        self.left_peak_bits
+            .store(0.0f32.to_bits(), Ordering::Relaxed);
+        self.right_peak_bits
+            .store(0.0f32.to_bits(), Ordering::Relaxed);
     }
 
     fn set_peaks(&self, left: f32, right: f32) {
-        self.left_peak_bits.store(left.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-        self.right_peak_bits.store(right.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.left_peak_bits
+            .store(left.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.right_peak_bits
+            .store(right.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 
     fn read(&self) -> (f32, f32) {
@@ -2058,7 +2226,8 @@ where
         self.sample_index = self.sample_index.wrapping_add(1);
         self.window_samples += 1;
         if self.window_samples >= 1024 {
-            self.meter.set_peaks(self.window_left_peak, self.window_right_peak);
+            self.meter
+                .set_peaks(self.window_left_peak, self.window_right_peak);
             self.window_samples = 0;
             self.window_left_peak = 0.0;
             self.window_right_peak = 0.0;
@@ -2338,8 +2507,8 @@ fn emit_status(state: &EngineState, request_id: &str) {
 
     let mut players = Vec::new();
     let mut meters = Vec::new();
-    let is_time_locution_active = state.time_locution_started_at.is_some()
-        && !state.time_locution_player.is_empty();
+    let is_time_locution_active =
+        state.time_locution_started_at.is_some() && !state.time_locution_player.is_empty();
     for (id, runtime) in &state.players {
         let audio_ready = runtime.player.is_some();
         // Si este player sostiene la locución horaria activa, reportamos el
@@ -2353,7 +2522,8 @@ fn emit_status(state: &EngineState, request_id: &str) {
             .map(|player| player.get_pos().as_millis() as u64)
             .unwrap_or(runtime.state.position_ms);
         let position_ms = if is_this_time_locution {
-            let elapsed = state.time_locution_started_at
+            let elapsed = state
+                .time_locution_started_at
                 .map(|t| t.elapsed().as_millis() as u64)
                 .unwrap_or(0);
             elapsed.min(state.time_locution_total_ms)
@@ -2557,9 +2727,15 @@ fn emit_encoder_pcm_chunk(state: &mut EngineState) {
     // NO seleccionado para que no acumule memoria si el modo permanece fijo.
     let mode = state.dsp_params.encoder_tap_mode.load(Ordering::Relaxed);
     let (active_consumer, idle_consumer) = if mode == 0 {
-        (state.encoder_tap_pre_consumer.as_mut(), state.encoder_tap_post_consumer.as_mut())
+        (
+            state.encoder_tap_pre_consumer.as_mut(),
+            state.encoder_tap_post_consumer.as_mut(),
+        )
     } else {
-        (state.encoder_tap_post_consumer.as_mut(), state.encoder_tap_pre_consumer.as_mut())
+        (
+            state.encoder_tap_post_consumer.as_mut(),
+            state.encoder_tap_pre_consumer.as_mut(),
+        )
     };
     // Drenar el ring inactivo (puede ser None si todavía no se enrutó master).
     if let Some(idle) = idle_consumer {
@@ -2649,7 +2825,13 @@ fn collect_output_devices() -> Result<(String, String, String, String, Vec<Strin
             is_default
         ));
     }
-    Ok((host_name, available_hosts, default_id, default_name, outputs))
+    Ok((
+        host_name,
+        available_hosts,
+        default_id,
+        default_name,
+        outputs,
+    ))
 }
 
 fn emit_devices(request_id: &str) {
@@ -2675,7 +2857,9 @@ fn find_output_device(requested_id: &str) -> Result<(Device, String, String), St
     let host = cpal::default_host();
     let requested = requested_id.trim();
     if requested.is_empty() || requested == "default" {
-        let device = host.default_output_device().ok_or_else(|| "No hay salida de audio default.".to_string())?;
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| "No hay salida de audio default.".to_string())?;
         let id = device_id(&device, 0);
         let name = device_name(&device, 0);
         return Ok((device, id, name));
@@ -2698,7 +2882,11 @@ fn find_output_device(requested_id: &str) -> Result<(Device, String, String), St
 }
 
 fn ensure_output(state: &mut EngineState, requested_id: &str) -> Result<(String, String), String> {
-    let requested = if requested_id.trim().is_empty() { "default" } else { requested_id.trim() };
+    let requested = if requested_id.trim().is_empty() {
+        "default"
+    } else {
+        requested_id.trim()
+    };
     let (device, id, name) = find_output_device(requested)?;
     if state.outputs.contains_key(&id) {
         return Ok((id, name));
@@ -2709,14 +2897,30 @@ fn ensure_output(state: &mut EngineState, requested_id: &str) -> Result<(String,
         .open_sink_or_fallback()
         .map_err(|err| format!("No se pudo abrir salida {}: {}", name, err))?;
     output.log_on_drop(false);
-    state.outputs.insert(id.clone(), OutputRuntime { name: name.clone(), sink: output });
+    state.outputs.insert(
+        id.clone(),
+        OutputRuntime {
+            name: name.clone(),
+            sink: output,
+        },
+    );
     Ok((id, name))
 }
 
-fn load_audio_player(state: &mut EngineState, player_id: &str, file_path: &str, gain: f32, paused: bool, output_id: &str, bus_id: &str) -> Result<(), String> {
+fn load_audio_player(
+    state: &mut EngineState,
+    player_id: &str,
+    file_path: &str,
+    gain: f32,
+    paused: bool,
+    output_id: &str,
+    bus_id: &str,
+) -> Result<(), String> {
     let (resolved_output_id, resolved_output_name) = ensure_output(state, output_id)?;
     if is_program_bus(bus_id) && state.program_mixer_input.is_none() {
-        let master_output_id = state.routes.get("master")
+        let master_output_id = state
+            .routes
+            .get("master")
             .map(|r| r.output_device_id.clone())
             .filter(|id| !id.trim().is_empty())
             .unwrap_or_else(|| resolved_output_id.clone());
@@ -2734,16 +2938,21 @@ fn load_audio_player(state: &mut EngineState, player_id: &str, file_path: &str, 
         None
     };
     let file = File::open(file_path).map_err(|err| format!("No se pudo abrir archivo: {}", err))?;
-    let decoder = Decoder::try_from(file).map_err(|err| format!("No se pudo decodificar audio: {}", err))?;
+    let decoder =
+        Decoder::try_from(file).map_err(|err| format!("No se pudo decodificar audio: {}", err))?;
     // Leer duración antes de consumir el decoder. `total_duration()` es confiable
     // para WAV y FLAC; para MP3 VBR puede devolver None o un valor aproximado.
-    let duration_ms = decoder.total_duration()
+    let duration_ms = decoder
+        .total_duration()
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let player = match program_mixer_clone.as_ref() {
         Some(mixer) => Player::connect_new(mixer),
         None => {
-            let output = state.outputs.get(&resolved_output_id).ok_or_else(|| "Salida Rust no disponible.".to_string())?;
+            let output = state
+                .outputs
+                .get(&resolved_output_id)
+                .ok_or_else(|| "Salida Rust no disponible.".to_string())?;
             Player::connect_new(output.sink.mixer())
         }
     };
@@ -2764,7 +2973,11 @@ fn load_audio_player(state: &mut EngineState, player_id: &str, file_path: &str, 
     let metered_source = MeteredSource::new(decoder, Arc::clone(&runtime.meter));
     player.append(metered_source);
     runtime.state.path = file_path.to_string();
-    runtime.state.status = if paused { "loaded".to_string() } else { "playing".to_string() };
+    runtime.state.status = if paused {
+        "loaded".to_string()
+    } else {
+        "playing".to_string()
+    };
     runtime.state.position_ms = 0;
     runtime.state.duration_ms = duration_ms;
     runtime.state.gain = gain.clamp(0.0, 2.0);
@@ -2800,7 +3013,10 @@ fn process_repeat_players(state: &mut EngineState) {
             continue;
         }
         let duration_ms = runtime.state.duration_ms;
-        let start_ms = runtime.state.repeat_start_ms.min(duration_ms.saturating_sub(1));
+        let start_ms = runtime
+            .state
+            .repeat_start_ms
+            .min(duration_ms.saturating_sub(1));
         if duration_ms <= start_ms + MIN_REPEAT_WINDOW_MS {
             continue;
         }
@@ -2831,7 +3047,15 @@ fn process_repeat_players(state: &mut EngineState) {
 
     for spec in repeats {
         let output_id = resolve_output_for_bus(state, &spec.bus_id, &spec.output_device_id);
-        match load_audio_player(state, &spec.player_id, &spec.path, spec.gain, true, &output_id, &spec.bus_id) {
+        match load_audio_player(
+            state,
+            &spec.player_id,
+            &spec.path,
+            spec.gain,
+            true,
+            &output_id,
+            &spec.bus_id,
+        ) {
             Ok(()) => {
                 if let Some(runtime) = state.players.get_mut(&spec.player_id) {
                     runtime.state.repeat_active = !spec.deactivate_after_repeat;
@@ -2901,15 +3125,20 @@ fn route_bus(state: &mut EngineState, bus_id: &str, output_id: &str) -> Result<(
     // enrutado a un output distinto. Si cambió, hay que reconstruir el grafo
     // del sub-mixer (para master) o de la cadena monitor (para monitor) y
     // cerrar el output viejo si nadie más lo usa.
-    let old_output_id = state.routes.get(bus_id)
+    let old_output_id = state
+        .routes
+        .get(bus_id)
         .map(|r| r.output_device_id.clone())
         .unwrap_or_default();
     let output_changed = !old_output_id.is_empty() && old_output_id != resolved_output_id;
 
-    state.routes.insert(bus_id.to_string(), RouteState {
-        output_device_id: resolved_output_id.clone(),
-        output_device_name: resolved_output_name,
-    });
+    state.routes.insert(
+        bus_id.to_string(),
+        RouteState {
+            output_device_id: resolved_output_id.clone(),
+            output_device_name: resolved_output_name,
+        },
+    );
 
     // FASE D · sub-paso 7.3 + FASE 3: master cambió de tarjeta → reconstruir
     // sub-mixer entero apuntando al nuevo sink. Los players activos pierden
@@ -2935,11 +3164,16 @@ fn route_bus(state: &mut EngineState, bus_id: &str, output_id: &str) -> Result<(
             // quedan liberados). Hay que reconstruirlo en la misma tarjeta
             // master para que ensure_monitor_chain encuentre los consumers
             // disponibles y los players puedan reanudarse.
-            let master_output_id = state.routes.get("master")
+            let master_output_id = state
+                .routes
+                .get("master")
                 .map(|r| r.output_device_id.clone())
                 .unwrap_or_else(|| "default".to_string());
             if let Err(err) = ensure_program_mixer(state, &master_output_id) {
-                eprintln!("[FASE D] No se pudo reconstruir program_mixer tras reset monitor: {}", err);
+                eprintln!(
+                    "[FASE D] No se pudo reconstruir program_mixer tras reset monitor: {}",
+                    err
+                );
             }
         }
         if let Err(err) = ensure_monitor_chain(state, &resolved_output_id) {
@@ -2967,7 +3201,9 @@ fn reset_program_mixer(state: &mut EngineState) {
     // que `ensure_program_mixer` construya el nuevo sub-mixer en la nueva
     // tarjeta. Solo se guardan los que están sonando o pausados y tienen
     // un archivo cargado en un bus de programa (no CUE/editores).
-    state.pending_resume = state.players.iter()
+    state.pending_resume = state
+        .players
+        .iter()
         .filter(|(_, r)| {
             (r.state.status == "playing" || r.state.status == "paused")
                 && !r.state.path.is_empty()
@@ -2978,7 +3214,8 @@ fn reset_program_mixer(state: &mut EngineState) {
             path: r.state.path.clone(),
             // La posición real viene del rodio Player, no del state (que se
             // fija en 0 al cargar y no se actualiza en tiempo real por Rust).
-            position_ms: r.player
+            position_ms: r
+                .player
                 .as_ref()
                 .map(|p| p.get_pos().as_millis() as u64)
                 .unwrap_or(r.state.position_ms),
@@ -3029,14 +3266,24 @@ fn reset_program_mixer(state: &mut EngineState) {
 /// se reduce a los milisegundos que tarda abrir la nueva tarjeta y decodificar.
 fn resume_pending_players(state: &mut EngineState) {
     let to_resume = std::mem::take(&mut state.pending_resume);
-    let master_output_id = state.routes.get("master")
+    let master_output_id = state
+        .routes
+        .get("master")
         .map(|r| r.output_device_id.clone())
         .unwrap_or_else(|| "default".to_string());
     for spec in to_resume {
         let resume_pos = spec.position_ms;
         // Cargar siempre en pausa: evita que el decoder emita muestras desde
         // el inicio (pos 0) durante el instante que tarda en procesar el seek.
-        match load_audio_player(state, &spec.player_id, &spec.path, spec.gain, true, &master_output_id, &spec.bus_id) {
+        match load_audio_player(
+            state,
+            &spec.player_id,
+            &spec.path,
+            spec.gain,
+            true,
+            &master_output_id,
+            &spec.bus_id,
+        ) {
             Ok(()) => {
                 if let Some(runtime) = state.players.get_mut(&spec.player_id) {
                     if let Some(player) = &runtime.player {
@@ -3056,7 +3303,10 @@ fn resume_pending_players(state: &mut EngineState) {
                 }
             }
             Err(e) => {
-                eprintln!("[auto-resume] No se pudo recargar {}: {}", spec.player_id, e);
+                eprintln!(
+                    "[auto-resume] No se pudo recargar {}: {}",
+                    spec.player_id, e
+                );
             }
         }
     }
@@ -3084,7 +3334,9 @@ fn reset_monitor_chain(state: &mut EngineState) {
 /// referenciados por ningún bus. Drop del `MixerDeviceSink` cierra el stream
 /// cpal y libera la tarjeta física.
 fn cleanup_unused_outputs(state: &mut EngineState) {
-    let mut referenced: std::collections::HashSet<String> = state.routes.values()
+    let mut referenced: std::collections::HashSet<String> = state
+        .routes
+        .values()
         .map(|r| r.output_device_id.clone())
         .collect();
     if !state.program_mixer_sink_id.is_empty() {
@@ -3162,12 +3414,18 @@ fn ensure_program_mixer(state: &mut EngineState, output_id: &str) -> Result<(), 
     let tee_post = MultiTeeSource::new(dsp, vec![mon_post_prod, enc_post_prod]);
 
     // FASE D · sub-paso 7.5: master fader único entre la cadena DSP y el sink.
-    let faded = FaderSource::new(tee_post, Arc::clone(&state.dsp_params), FaderGainField::Master);
+    let faded = FaderSource::new(
+        tee_post,
+        Arc::clone(&state.dsp_params),
+        FaderGainField::Master,
+    );
     // FASE D · sub-paso 7.6: tap post-fader que mide la suma real saliendo al
     // sink. Reutilizamos `MeteredSource` (mismo adapter que cada player usa
     // individualmente) escribiendo en el `master_bus_meter` del state.
     let metered = MeteredSource::new(faded, Arc::clone(&state.master_bus_meter));
-    let output = state.outputs.get(output_id)
+    let output = state
+        .outputs
+        .get(output_id)
         .ok_or_else(|| format!("Sin output {} para program_mixer", output_id))?;
     output.sink.mixer().add(metered);
     state.program_mixer_input = Some(program_input);
@@ -3189,10 +3447,12 @@ fn ensure_monitor_chain(state: &mut EngineState, output_id: &str) -> Result<(), 
     // FASE D · sub-paso 11.3: requerimos AMBOS consumers (Pre y Post FX).
     // El DualTapConsumerSource elige sample-por-sample según el atómico
     // `monitor_tap_mode` (0=preFx, 1=postFx). Conmutación en caliente.
-    let pre_consumer = state.monitor_tap_pre_consumer.take()
-        .ok_or_else(|| "Monitor tap Pre-FX no disponible (program_mixer no inicializado)".to_string())?;
-    let post_consumer = state.monitor_tap_post_consumer.take()
-        .ok_or_else(|| "Monitor tap Post-FX no disponible (program_mixer no inicializado)".to_string())?;
+    let pre_consumer = state.monitor_tap_pre_consumer.take().ok_or_else(|| {
+        "Monitor tap Pre-FX no disponible (program_mixer no inicializado)".to_string()
+    })?;
+    let post_consumer = state.monitor_tap_post_consumer.take().ok_or_else(|| {
+        "Monitor tap Post-FX no disponible (program_mixer no inicializado)".to_string()
+    })?;
     let stereo: ChannelCount = NonZeroU16::new(2).ok_or("ChannelCount inválido")?;
     let rate: SampleRate = NonZeroU32::new(44100).ok_or("SampleRate inválido")?;
     let dual = DualTapConsumerSource::new(
@@ -3205,7 +3465,9 @@ fn ensure_monitor_chain(state: &mut EngineState, output_id: &str) -> Result<(), 
     );
     let faded = FaderSource::new(dual, Arc::clone(&state.dsp_params), FaderGainField::Monitor);
     let metered = MeteredSource::new(faded, Arc::clone(&state.monitor_bus_meter));
-    let output = state.outputs.get(output_id)
+    let output = state
+        .outputs
+        .get(output_id)
         .ok_or_else(|| format!("Sin output {} para monitor", output_id))?;
     output.sink.mixer().add(metered);
     state.monitor_sink_id = output_id.to_string();
@@ -3265,18 +3527,30 @@ fn update_playlist_mode(state: &mut EngineState, line: &str) {
     state.playlist_mode.repeat_track = json_get_bool(line, "repeatTrack").unwrap_or(false);
     state.playlist_mode.remove_played = json_get_bool(line, "removePlayed").unwrap_or(false);
     state.playlist_mode.loop_playlist = json_get_bool(line, "loopPlaylist").unwrap_or(false);
-    state.playlist_mode.repeat_forget_protection_enabled = json_get_bool(line, "repeatForgetProtectionEnabled").unwrap_or(false);
-    state.playlist_mode.repeat_forget_protection_max = json_get_u64(line, "repeatForgetProtectionMax").unwrap_or(10).clamp(1, 999);
-    state.playlist_mode.repeat_disable_on_manual_next = json_get_bool(line, "repeatDisableOnManualNext").unwrap_or(true);
-    state.playlist_mode.remove_played_protection_enabled = json_get_bool(line, "removePlayedProtectionEnabled").unwrap_or(false);
-    state.playlist_mode.remove_played_protection_min_remaining = json_get_u64(line, "removePlayedProtectionMinRemaining").unwrap_or(2).clamp(1, 999);
+    state.playlist_mode.stop_after_current =
+        json_get_bool(line, "stopAfterCurrent").unwrap_or(false);
+    state.playlist_mode.repeat_forget_protection_enabled =
+        json_get_bool(line, "repeatForgetProtectionEnabled").unwrap_or(false);
+    state.playlist_mode.repeat_forget_protection_max =
+        json_get_u64(line, "repeatForgetProtectionMax")
+            .unwrap_or(10)
+            .clamp(1, 999);
+    state.playlist_mode.repeat_disable_on_manual_next =
+        json_get_bool(line, "repeatDisableOnManualNext").unwrap_or(true);
+    state.playlist_mode.remove_played_protection_enabled =
+        json_get_bool(line, "removePlayedProtectionEnabled").unwrap_or(false);
+    state.playlist_mode.remove_played_protection_min_remaining =
+        json_get_u64(line, "removePlayedProtectionMinRemaining")
+            .unwrap_or(2)
+            .clamp(1, 999);
 }
 
 fn update_playlist_playback_context(state: &mut EngineState, line: &str) {
     let current_row_id = json_get_string(line, "currentRowId").unwrap_or_default();
     let current_player = json_get_string(line, "currentPlayer").unwrap_or_default();
     if state.playlist_context.current_row_id != current_row_id
-        || state.playlist_context.current_player != current_player {
+        || state.playlist_context.current_player != current_player
+    {
         state.playlist_context.last_finished_key.clear();
     }
     state.playlist_context.current_row_id = current_row_id;
@@ -3291,12 +3565,20 @@ fn is_operational_playlist_row(row: &PlaylistRowState) -> bool {
 
 fn decide_next_playlist_row(state: &EngineState, current_row_id: &str) -> Option<PlaylistRowState> {
     if !state.playlist_context.queued_row_id.is_empty() {
-        if let Some(row) = state.playlist_rows.iter().find(|row| row.row_id == state.playlist_context.queued_row_id) {
+        if let Some(row) = state
+            .playlist_rows
+            .iter()
+            .find(|row| row.row_id == state.playlist_context.queued_row_id)
+        {
             return Some(row.clone());
         }
     }
-    let current = state.playlist_rows.iter().find(|row| row.row_id == current_row_id)?;
-    let mut same_tab = state.playlist_rows
+    let current = state
+        .playlist_rows
+        .iter()
+        .find(|row| row.row_id == current_row_id)?;
+    let mut same_tab = state
+        .playlist_rows
         .iter()
         .filter(|row| row.tab == current.tab)
         .cloned()
@@ -3304,7 +3586,8 @@ fn decide_next_playlist_row(state: &EngineState, current_row_id: &str) -> Option
     same_tab.sort_by_key(|row| row.order);
     if let Some(row) = same_tab
         .iter()
-        .find(|row| row.order > current.order && is_operational_playlist_row(row)) {
+        .find(|row| row.order > current.order && is_operational_playlist_row(row))
+    {
         return Some(row.clone());
     }
     if state.playlist_mode.loop_playlist {
@@ -3338,34 +3621,46 @@ fn emit_playlist_mode_changed(state: &EngineState, reason: &str) {
 }
 
 fn operational_rows_in_tab(state: &EngineState, tab: u64) -> u64 {
-    state.playlist_rows
+    state
+        .playlist_rows
         .iter()
         .filter(|row| row.tab == tab && is_operational_playlist_row(row))
         .count() as u64
 }
 
-fn emit_remove_played_if_allowed(state: &mut EngineState, current_row_id: &str, current_player: &str) {
+fn emit_remove_played_if_allowed(
+    state: &mut EngineState,
+    current_row_id: &str,
+    current_player: &str,
+) {
     if !state.playlist_mode.remove_played {
         return;
     }
-    let current_tab = state.playlist_rows
+    let current_tab = state
+        .playlist_rows
         .iter()
         .find(|row| row.row_id == current_row_id)
         .map(|row| row.tab)
         .unwrap_or(state.playlist_context.pgm_tab);
     let operational_count = operational_rows_in_tab(state, current_tab);
-    let min_remaining = state.playlist_mode.remove_played_protection_min_remaining.max(1);
-    let protected = state.playlist_mode.remove_played_protection_enabled
-        && operational_count <= min_remaining;
+    let min_remaining = state
+        .playlist_mode
+        .remove_played_protection_min_remaining
+        .max(1);
+    let protected =
+        state.playlist_mode.remove_played_protection_enabled && operational_count <= min_remaining;
     if protected {
         state.playlist_mode.remove_played = false;
         emit_playlist_mode_changed(state, "remove-protection");
         return;
     }
     emit_playlist_action("removeRow", current_row_id, current_player);
-    state.playlist_rows.retain(|row| row.row_id != current_row_id);
+    state
+        .playlist_rows
+        .retain(|row| row.row_id != current_row_id);
     if state.playlist_mode.remove_played_protection_enabled
-        && operational_count.saturating_sub(1) <= min_remaining {
+        && operational_count.saturating_sub(1) <= min_remaining
+    {
         state.playlist_mode.remove_played = false;
         emit_playlist_mode_changed(state, "remove-protection");
     }
@@ -3397,7 +3692,8 @@ fn process_playlist_finished(state: &mut EngineState, player_id: &str, force: bo
     };
     if !state.playlist_context.current_player.is_empty()
         && !current_player.is_empty()
-        && state.playlist_context.current_player != current_player {
+        && state.playlist_context.current_player != current_player
+    {
         return;
     }
     let finish_key = format!("{}|{}", current_row_id, current_player);
@@ -3422,6 +3718,12 @@ fn process_playlist_finished(state: &mut EngineState, player_id: &str, force: bo
             state.playlist_mode.repeat_track = false;
             emit_playlist_mode_changed(state, "repeat-limit");
         }
+        return;
+    }
+
+    if state.playlist_mode.stop_after_current {
+        state.playlist_mode.stop_after_current = false;
+        dispatch_playlist_destination(None, &current_player);
         return;
     }
 
@@ -3488,23 +3790,38 @@ fn update_encoder(state: &mut EngineState, line: &str) {
     state.encoder.source_bus = json_get_string(line, "source")
         .or_else(|| json_get_string(line, "sourceBus"))
         .unwrap_or_else(|| state.encoder.source_bus.clone());
-    state.encoder.owner = json_get_string(line, "owner").unwrap_or_else(|| state.encoder.owner.clone());
-    state.encoder.requested_owner = json_get_string(line, "requestedOwner").unwrap_or_else(|| state.encoder.requested_owner.clone());
-    state.encoder.capture_provider = json_get_string(line, "captureProvider").unwrap_or_else(|| state.encoder.capture_provider.clone());
-    state.encoder.encoder_provider = json_get_string(line, "encoderProvider").unwrap_or_else(|| state.encoder.encoder_provider.clone());
-    state.encoder.rust_pcm_ready = json_get_bool(line, "rustPcmReady").unwrap_or(state.encoder.rust_pcm_ready);
-    state.encoder.pcm_bridge_ready = json_get_bool(line, "pcmBridgeReady").unwrap_or(state.encoder.pcm_bridge_ready);
-    state.encoder.pcm_bridge_mode = json_get_string(line, "pcmBridgeMode").unwrap_or_else(|| state.encoder.pcm_bridge_mode.clone());
-    state.encoder.pcm_bridge_reason = json_get_string(line, "pcmBridgeReason").unwrap_or_else(|| state.encoder.pcm_bridge_reason.clone());
-    state.encoder.fallback_reason = json_get_string(line, "fallbackReason").unwrap_or_else(|| state.encoder.fallback_reason.clone());
-    state.encoder.capture_format = json_get_string(line, "captureFormat").unwrap_or_else(|| state.encoder.capture_format.clone());
-    state.encoder.sample_rate = json_get_u64(line, "sampleRate").unwrap_or(state.encoder.sample_rate);
-    state.encoder.transport = json_get_string(line, "transport").unwrap_or_else(|| state.encoder.transport.clone());
-    state.encoder.bitrate_kbps = json_get_f32(line, "bitrateKbps").unwrap_or(state.encoder.bitrate_kbps);
+    state.encoder.owner =
+        json_get_string(line, "owner").unwrap_or_else(|| state.encoder.owner.clone());
+    state.encoder.requested_owner = json_get_string(line, "requestedOwner")
+        .unwrap_or_else(|| state.encoder.requested_owner.clone());
+    state.encoder.capture_provider = json_get_string(line, "captureProvider")
+        .unwrap_or_else(|| state.encoder.capture_provider.clone());
+    state.encoder.encoder_provider = json_get_string(line, "encoderProvider")
+        .unwrap_or_else(|| state.encoder.encoder_provider.clone());
+    state.encoder.rust_pcm_ready =
+        json_get_bool(line, "rustPcmReady").unwrap_or(state.encoder.rust_pcm_ready);
+    state.encoder.pcm_bridge_ready =
+        json_get_bool(line, "pcmBridgeReady").unwrap_or(state.encoder.pcm_bridge_ready);
+    state.encoder.pcm_bridge_mode = json_get_string(line, "pcmBridgeMode")
+        .unwrap_or_else(|| state.encoder.pcm_bridge_mode.clone());
+    state.encoder.pcm_bridge_reason = json_get_string(line, "pcmBridgeReason")
+        .unwrap_or_else(|| state.encoder.pcm_bridge_reason.clone());
+    state.encoder.fallback_reason = json_get_string(line, "fallbackReason")
+        .unwrap_or_else(|| state.encoder.fallback_reason.clone());
+    state.encoder.capture_format = json_get_string(line, "captureFormat")
+        .unwrap_or_else(|| state.encoder.capture_format.clone());
+    state.encoder.sample_rate =
+        json_get_u64(line, "sampleRate").unwrap_or(state.encoder.sample_rate);
+    state.encoder.transport =
+        json_get_string(line, "transport").unwrap_or_else(|| state.encoder.transport.clone());
+    state.encoder.bitrate_kbps =
+        json_get_f32(line, "bitrateKbps").unwrap_or(state.encoder.bitrate_kbps);
     state.encoder.speed = json_get_f32(line, "speed").unwrap_or(state.encoder.speed);
-    state.encoder.ffmpeg_time = json_get_string(line, "ffmpegTime").unwrap_or_else(|| state.encoder.ffmpeg_time.clone());
+    state.encoder.ffmpeg_time =
+        json_get_string(line, "ffmpegTime").unwrap_or_else(|| state.encoder.ffmpeg_time.clone());
     state.encoder.max_gap_ms = json_get_f32(line, "maxGapMs").unwrap_or(state.encoder.max_gap_ms);
-    state.encoder.gap_warnings = json_get_u64(line, "gapWarnings").unwrap_or(state.encoder.gap_warnings);
+    state.encoder.gap_warnings =
+        json_get_u64(line, "gapWarnings").unwrap_or(state.encoder.gap_warnings);
     state.encoder.updated_at = now_ms();
 }
 
@@ -3528,12 +3845,8 @@ fn default_bus_for_player(player_id: &str) -> &'static str {
         "cue-player" | "preview-player" | "editor-player" => "cue",
         // Editores avanzados — siempre van al bus de pre-escucha (cue),
         // completamente independientes del master, encoder, monitor y efectos.
-        "audio-editor"
-        | "jingle-editor-a"
-        | "jingle-editor-j"
-        | "jingle-editor-b"
-        | "trans-editor-a"
-        | "trans-editor-b" => "cue",
+        "audio-editor" | "jingle-editor-a" | "jingle-editor-j" | "jingle-editor-b"
+        | "trans-editor-a" | "trans-editor-b" => "cue",
         "cartwall" | "cartwall-player" => "cartwall",
         "pl1" | "playlist-1" => "pl1",
         "pl2" | "playlist-2" => "pl2",
@@ -3570,7 +3883,10 @@ fn is_diagnostic_player(player_id: &str) -> bool {
 fn has_active_audio(state: &EngineState) -> bool {
     state.players.values().any(|runtime| {
         runtime.player.is_some()
-            && matches!(runtime.state.status.as_str(), "playing" | "paused" | "loaded")
+            && matches!(
+                runtime.state.status.as_str(),
+                "playing" | "paused" | "loaded"
+            )
     })
 }
 
@@ -3599,7 +3915,9 @@ fn floats_to_json(v: &[f32]) -> String {
     let mut s = String::with_capacity(v.len() * 9);
     s.push('[');
     for (i, val) in v.iter().enumerate() {
-        if i > 0 { s.push(','); }
+        if i > 0 {
+            s.push(',');
+        }
         s.push_str(&format!("{:.5}", val));
     }
     s.push(']');
@@ -3618,8 +3936,18 @@ fn save_peaks_cache(
     if let Some(parent) = std::path::Path::new(cache_path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let Ok(mut f) = std::fs::File::create(cache_path) else { return; };
-    let _ = writeln!(f, "v1 {} {} {:.4} {:.4} {}", sample_rate, duration_ms, silence_start, silence_end, min.len());
+    let Ok(mut f) = std::fs::File::create(cache_path) else {
+        return;
+    };
+    let _ = writeln!(
+        f,
+        "v1 {} {} {:.4} {:.4} {}",
+        sample_rate,
+        duration_ms,
+        silence_start,
+        silence_end,
+        min.len()
+    );
     let min_str: Vec<String> = min.iter().map(|v| format!("{:.5}", v)).collect();
     let _ = writeln!(f, "{}", min_str.join(" "));
     let max_str: Vec<String> = max.iter().map(|v| format!("{:.5}", v)).collect();
@@ -3631,7 +3959,9 @@ fn load_peaks_cache(cache_path: &str) -> Option<(Vec<f32>, Vec<f32>, u64, u32, f
     let mut lines = content.lines();
     let header = lines.next()?;
     let parts: Vec<&str> = header.split_whitespace().collect();
-    if parts.len() < 6 || parts[0] != "v1" { return None; }
+    if parts.len() < 6 || parts[0] != "v1" {
+        return None;
+    }
     let sample_rate: u32 = parts[1].parse().ok()?;
     let duration_ms: u64 = parts[2].parse().ok()?;
     let silence_start: f32 = parts[3].parse().ok()?;
@@ -3639,10 +3969,25 @@ fn load_peaks_cache(cache_path: &str) -> Option<(Vec<f32>, Vec<f32>, u64, u32, f
     let bins: usize = parts[5].parse().ok()?;
     let min_line = lines.next()?;
     let max_line = lines.next()?;
-    let min: Vec<f32> = min_line.split_whitespace().filter_map(|s| s.parse().ok()).collect();
-    let max: Vec<f32> = max_line.split_whitespace().filter_map(|s| s.parse().ok()).collect();
-    if min.len() != bins || max.len() != bins { return None; }
-    Some((min, max, duration_ms, sample_rate, silence_start, silence_end))
+    let min: Vec<f32> = min_line
+        .split_whitespace()
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    let max: Vec<f32> = max_line
+        .split_whitespace()
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    if min.len() != bins || max.len() != bins {
+        return None;
+    }
+    Some((
+        min,
+        max,
+        duration_ms,
+        sample_rate,
+        silence_start,
+        silence_end,
+    ))
 }
 
 fn compute_waveform_peaks(
@@ -3661,7 +4006,10 @@ fn compute_waveform_peaks(
             .unwrap_or(0);
         let cache_dir_clean = cache_dir.trim_end_matches(['/', '\\']);
         // El nombre incluye bins para que distintas resoluciones no colisionen
-        Some(format!("{}/{:016x}_{}_b{}.peaks", cache_dir_clean, hash, mtime, target_bins))
+        Some(format!(
+            "{}/{:016x}_{}_b{}.peaks",
+            cache_dir_clean, hash, mtime, target_bins
+        ))
     } else {
         None
     };
@@ -3690,8 +4038,12 @@ fn compute_waveform_peaks(
 
     for sample in decoder {
         if sample_idx % channels.max(1) == 0 {
-            if sample < cur_min { cur_min = sample; }
-            if sample > cur_max { cur_max = sample; }
+            if sample < cur_min {
+                cur_min = sample;
+            }
+            if sample > cur_max {
+                cur_max = sample;
+            }
             frames_in_chunk += 1;
             total_frames += 1;
             if frames_in_chunk >= CHUNK_FRAMES {
@@ -3709,7 +4061,11 @@ fn compute_waveform_peaks(
         chunk_maxs.push(cur_max);
     }
 
-    let duration_ms = if sample_rate > 0 { (total_frames * 1000) / sample_rate as u64 } else { 0 };
+    let duration_ms = if sample_rate > 0 {
+        (total_frames * 1000) / sample_rate as u64
+    } else {
+        0
+    };
     let total_chunks = chunk_mins.len();
 
     // Reducir chunks a target_bins
@@ -3718,18 +4074,24 @@ fn compute_waveform_peaks(
     let mut max_peaks = vec![-1.0f32; actual_bins];
     for bin in 0..actual_bins {
         let start_c = (bin * total_chunks) / actual_bins;
-        let end_c = (((bin + 1) * total_chunks) / actual_bins).min(total_chunks).max(start_c + 1);
+        let end_c = (((bin + 1) * total_chunks) / actual_bins)
+            .min(total_chunks)
+            .max(start_c + 1);
         for c in start_c..end_c {
             if c < total_chunks {
-                if chunk_mins[c] < min_peaks[bin] { min_peaks[bin] = chunk_mins[c]; }
-                if chunk_maxs[c] > max_peaks[bin] { max_peaks[bin] = chunk_maxs[c]; }
+                if chunk_mins[c] < min_peaks[bin] {
+                    min_peaks[bin] = chunk_mins[c];
+                }
+                if chunk_maxs[c] > max_peaks[bin] {
+                    max_peaks[bin] = chunk_maxs[c];
+                }
             }
         }
     }
 
     // Detección de silencios (inicio y fin del audio real)
     let thresh_start = 10.0f32.powf(-38.0 / 20.0);
-    let thresh_end   = 10.0f32.powf(-30.0 / 20.0);
+    let thresh_end = 10.0f32.powf(-30.0 / 20.0);
     let guard_chunks = ((sample_rate as usize * 50) / 1000 / CHUNK_FRAMES).max(1);
 
     let mut silence_start_frames = 0u64;
@@ -3743,18 +4105,42 @@ fn compute_waveform_peaks(
     let mut silence_end_frames = total_frames;
     for (i, (&mn, &mx)) in chunk_mins.iter().zip(chunk_maxs.iter()).enumerate().rev() {
         if mx.max(-mn) > thresh_end {
-            silence_end_frames = ((i as u64 + 1 + guard_chunks as u64) * CHUNK_FRAMES as u64).min(total_frames);
+            silence_end_frames =
+                ((i as u64 + 1 + guard_chunks as u64) * CHUNK_FRAMES as u64).min(total_frames);
             break;
         }
     }
-    let silence_start_s = if sample_rate > 0 { silence_start_frames as f32 / sample_rate as f32 } else { 0.0 };
-    let silence_end_s   = if sample_rate > 0 { silence_end_frames   as f32 / sample_rate as f32 } else { 0.0 };
+    let silence_start_s = if sample_rate > 0 {
+        silence_start_frames as f32 / sample_rate as f32
+    } else {
+        0.0
+    };
+    let silence_end_s = if sample_rate > 0 {
+        silence_end_frames as f32 / sample_rate as f32
+    } else {
+        0.0
+    };
 
     if let Some(ref cp) = cache_path {
-        save_peaks_cache(cp, &min_peaks, &max_peaks, duration_ms, sample_rate, silence_start_s, silence_end_s);
+        save_peaks_cache(
+            cp,
+            &min_peaks,
+            &max_peaks,
+            duration_ms,
+            sample_rate,
+            silence_start_s,
+            silence_end_s,
+        );
     }
 
-    Ok((min_peaks, max_peaks, duration_ms, sample_rate, silence_start_s, silence_end_s))
+    Ok((
+        min_peaks,
+        max_peaks,
+        duration_ms,
+        sample_rate,
+        silence_start_s,
+        silence_end_s,
+    ))
 }
 
 // ─── Locución horaria ────────────────────────────────────────────────────────
@@ -3803,9 +4189,12 @@ fn resolve_time_locution_files(folder: &str) -> Vec<String> {
     let hh = format!("{:02}", h);
     let mm = format!("{:02}", m);
     let folder_path = std::path::Path::new(folder);
-    if !folder_path.is_dir() { return Vec::new(); }
+    if !folder_path.is_dir() {
+        return Vec::new();
+    }
     let entries: Vec<(String, std::path::PathBuf)> = match std::fs::read_dir(folder_path) {
-        Ok(rd) => rd.flatten()
+        Ok(rd) => rd
+            .flatten()
             .filter_map(|e| e.file_name().into_string().ok().map(|n| (n, e.path())))
             .collect(),
         Err(_) => return Vec::new(),
@@ -3813,7 +4202,10 @@ fn resolve_time_locution_files(folder: &str) -> Vec<String> {
     let mut out = Vec::new();
     if mm == "00" {
         let prefix = format!("HRS{}_O", hh);
-        if let Some((_, p)) = entries.iter().find(|(n, _)| n.to_uppercase().starts_with(&prefix)) {
+        if let Some((_, p)) = entries
+            .iter()
+            .find(|(n, _)| n.to_uppercase().starts_with(&prefix))
+        {
             out.push(p.to_string_lossy().to_string());
         }
     } else {
@@ -3825,7 +4217,10 @@ fn resolve_time_locution_files(folder: &str) -> Vec<String> {
             out.push(p.to_string_lossy().to_string());
         }
         let prefix_m = format!("MIN{}", mm);
-        if let Some((_, p)) = entries.iter().find(|(n, _)| n.to_uppercase().starts_with(&prefix_m)) {
+        if let Some((_, p)) = entries
+            .iter()
+            .find(|(n, _)| n.to_uppercase().starts_with(&prefix_m))
+        {
             out.push(p.to_string_lossy().to_string());
         }
     }
@@ -3841,7 +4236,8 @@ fn finish_time_locution_if_drained(state: &mut EngineState) {
     if player_id.is_empty() {
         return;
     }
-    let drained = state.players
+    let drained = state
+        .players
         .get(&player_id)
         .and_then(|runtime| runtime.player.as_ref())
         .map(|player| player.empty())
@@ -3851,9 +4247,17 @@ fn finish_time_locution_if_drained(state: &mut EngineState) {
     }
 
     let duration_ms = state.time_locution_total_ms;
-    let segments = state.players
+    let segments = state
+        .players
         .get(&player_id)
-        .map(|runtime| runtime.state.path.split('|').filter(|part| !part.trim().is_empty()).count())
+        .map(|runtime| {
+            runtime
+                .state
+                .path
+                .split('|')
+                .filter(|part| !part.trim().is_empty())
+                .count()
+        })
         .unwrap_or(0);
 
     if let Some(runtime) = state.players.get_mut(&player_id) {
@@ -3893,7 +4297,9 @@ fn start_time_locution(
 ) -> Result<(u64, Vec<String>), String> {
     let files = resolve_time_locution_files(folder);
     if files.is_empty() {
-        return Err("No se encontraron archivos de locucion de hora para la hora actual.".to_string());
+        return Err(
+            "No se encontraron archivos de locucion de hora para la hora actual.".to_string(),
+        );
     }
     // Resolver el output respetando el routing del bus (mismo patrón que loadAudio).
     // Cuando el renderer pasa bus="pl1"/"pl2" para una locución de playlist, la
@@ -3901,7 +4307,9 @@ fn start_time_locution(
     let routed_output_id = resolve_output_for_bus(state, bus_id, output_id);
     let (resolved_output_id, _) = ensure_output(state, &routed_output_id)?;
     if is_program_bus(bus_id) && state.program_mixer_input.is_none() {
-        let master_output_id = state.routes.get("master")
+        let master_output_id = state
+            .routes
+            .get("master")
             .map(|r| r.output_device_id.clone())
             .filter(|id| !id.trim().is_empty())
             .unwrap_or_else(|| resolved_output_id.clone());
@@ -3921,7 +4329,9 @@ fn start_time_locution(
     let player = match program_mixer_clone.as_ref() {
         Some(mixer) => Player::connect_new(mixer),
         None => {
-            let output = state.outputs.get(&resolved_output_id)
+            let output = state
+                .outputs
+                .get(&resolved_output_id)
                 .ok_or_else(|| "Salida Rust no disponible.".to_string())?;
             Player::connect_new(output.sink.mixer())
         }
@@ -3932,8 +4342,7 @@ fn start_time_locution(
     let meter = Arc::new(PlayerMeter::default());
     let mut total_ms: u64 = 0;
     for path in &files {
-        let file = File::open(path)
-            .map_err(|e| format!("No se pudo abrir {}: {}", path, e))?;
+        let file = File::open(path).map_err(|e| format!("No se pudo abrir {}: {}", path, e))?;
         let decoder = Decoder::try_from(file)
             .map_err(|e| format!("No se pudo decodificar {}: {}", path, e))?;
         if let Some(d) = decoder.total_duration() {
@@ -3943,7 +4352,9 @@ fn start_time_locution(
         player.append(metered);
     }
     if total_ms == 0 {
-        return Err("La locucion de hora dura 0 ms (decoders sin metadata de duracion).".to_string());
+        return Err(
+            "La locucion de hora dura 0 ms (decoders sin metadata de duracion).".to_string(),
+        );
     }
 
     // Reemplazar player previo (si quedaba uno colgado de una locución anterior).
@@ -4080,7 +4491,8 @@ fn main() {
             }
             "route" => {
                 let bus_id = json_get_string(&line, "bus").unwrap_or_else(|| player_id.clone());
-                let output_id = json_get_string(&line, "outputId").unwrap_or_else(|| "default".to_string());
+                let output_id =
+                    json_get_string(&line, "outputId").unwrap_or_else(|| "default".to_string());
                 // Para el bus encoder almacenamos el modo de fuente (pre/post FX)
                 // pero NO abrimos stream cpal (el encoder vive en el lado JS).
                 if bus_id == "encoder" {
@@ -4092,8 +4504,7 @@ fn main() {
                     // sobreescribía el valor recién seleccionado por el operador.
                     // Ahora si llega vacío o desconocido, mantenemos el valor
                     // actual de `state.encoder_source_mode`.
-                    let source_mode_raw = json_get_string(&line, "sourceMode")
-                        .unwrap_or_default();
+                    let source_mode_raw = json_get_string(&line, "sourceMode").unwrap_or_default();
                     let source_mode = match source_mode_raw.as_str() {
                         "preFx" => "preFx".to_string(),
                         "postFx" => "postFx".to_string(),
@@ -4103,7 +4514,9 @@ fn main() {
                     state.encoder_source_mode = source_mode;
                     // FASE D · sub-paso 11.3: propagar al atómico que lee
                     // emit_encoder_pcm_chunk para elegir cuál ring drenar.
-                    state.dsp_params.encoder_tap_mode
+                    state
+                        .dsp_params
+                        .encoder_tap_mode
                         .store(if is_pre { 0 } else { 1 }, Ordering::Relaxed);
                     // Registramos la ruta virtual (sin abrir output cpal).
                     state.routes.insert(
@@ -4118,7 +4531,9 @@ fn main() {
                     // sourceMode preFx|postFx para alternar su tap.
                     if let Some(source_mode) = json_get_string(&line, "sourceMode") {
                         let is_pre = source_mode == "preFx";
-                        state.dsp_params.monitor_tap_mode
+                        state
+                            .dsp_params
+                            .monitor_tap_mode
                             .store(if is_pre { 0 } else { 1 }, Ordering::Relaxed);
                     }
                     if let Err(err) = route_bus(&mut state, &bus_id, &output_id) {
@@ -4137,7 +4552,10 @@ fn main() {
                     .unwrap_or(state.master_gain)
                     .clamp(0.0, 2.0);
                 state.master_gain = gain; // cache legacy para `status`
-                state.dsp_params.master_gain_bits.store(gain.to_bits(), Ordering::Relaxed);
+                state
+                    .dsp_params
+                    .master_gain_bits
+                    .store(gain.to_bits(), Ordering::Relaxed);
             }
             // ── Fader monitor: atómico DspParams, listo para el MonitorChain ──
             // del sub-paso 8.1. Hoy se almacena en el atómico (todavía sin
@@ -4147,7 +4565,10 @@ fn main() {
                     .unwrap_or(state.monitor_gain)
                     .clamp(0.0, 2.0);
                 state.monitor_gain = gain;
-                state.dsp_params.monitor_gain_bits.store(gain.to_bits(), Ordering::Relaxed);
+                state
+                    .dsp_params
+                    .monitor_gain_bits
+                    .store(gain.to_bits(), Ordering::Relaxed);
             }
             // ── FASE D · sub-paso 8.2: activar/desactivar el tap del encoder.
             // Cuando `enable=true`, cada PushTick (cada 20 ms) drena el ring
@@ -4155,7 +4576,10 @@ fn main() {
             // probe Node lo recibe y lo pipea al stdin de FFmpeg.
             "encoderTap" => {
                 let enable = json_get_bool(&line, "enable").unwrap_or(false);
-                state.dsp_params.encoder_tap_active.store(enable, Ordering::Relaxed);
+                state
+                    .dsp_params
+                    .encoder_tap_active
+                    .store(enable, Ordering::Relaxed);
                 // Drenamos AMBOS rings (Pre y Post FX) al desactivar para que
                 // la próxima activación arranque limpia.
                 if !enable {
@@ -4209,24 +4633,38 @@ fn main() {
                 state.fx.pan = json_get_f32(&line, "pan").unwrap_or(state.fx.pan);
                 state.fx.mono = json_get_bool(&line, "mono").unwrap_or(state.fx.mono);
                 // Propagación a los atómicos del DSP en vivo.
-                state.dsp_params.preamp_db_bits
+                state
+                    .dsp_params
+                    .preamp_db_bits
                     .store(state.fx.preamp_db.to_bits(), Ordering::Relaxed);
-                state.dsp_params.pan_bits
+                state
+                    .dsp_params
+                    .pan_bits
                     .store(state.fx.pan.to_bits(), Ordering::Relaxed);
-                let bool_to_wet = |b: bool| -> u32 { (if b { 1.0_f32 } else { 0.0_f32 }).to_bits() };
-                state.dsp_params.mono_wet_target_bits
+                let bool_to_wet =
+                    |b: bool| -> u32 { (if b { 1.0_f32 } else { 0.0_f32 }).to_bits() };
+                state
+                    .dsp_params
+                    .mono_wet_target_bits
                     .store(bool_to_wet(state.fx.mono), Ordering::Relaxed);
-                state.dsp_params.eq_wet_target_bits
+                state
+                    .dsp_params
+                    .eq_wet_target_bits
                     .store(bool_to_wet(state.fx.eq), Ordering::Relaxed);
-                state.dsp_params.comp_wet_target_bits
+                state
+                    .dsp_params
+                    .comp_wet_target_bits
                     .store(bool_to_wet(state.fx.comp), Ordering::Relaxed);
-                state.dsp_params.limiter_wet_target_bits
+                state
+                    .dsp_params
+                    .limiter_wet_target_bits
                     .store(bool_to_wet(state.fx.limiter), Ordering::Relaxed);
                 // Regla 2: aplicar las 8 bandas EQ (gain en dB por banda).
                 // Frecuencia y Q quedan en los defaults broadcast (63/125/...).
                 if let Some(bands) = json_get_f32_array(&line, "bands") {
                     for (i, gain_db) in bands.iter().enumerate().take(8) {
-                        state.dsp_params.eq_bands[i].gain_db_bits
+                        state.dsp_params.eq_bands[i]
+                            .gain_db_bits
                             .store(gain_db.to_bits(), Ordering::Relaxed);
                     }
                 }
@@ -4241,7 +4679,9 @@ fn main() {
                     let mut used = [false; 3]; // 0=eq, 1=comp, 2=lim
                     let mut slot = 0_u32;
                     for id in order_strs.iter() {
-                        if slot >= 3 { break; }
+                        if slot >= 3 {
+                            break;
+                        }
                         let idx_opt: Option<u32> = match id.as_str() {
                             "eq" => Some(0),
                             "comp" => Some(1),
@@ -4260,7 +4700,9 @@ fn main() {
                     // Completa los bloques faltantes en su orden natural para
                     // que la cadena nunca pierda un módulo (paranoia anti-bug).
                     for i in 0..3_u32 {
-                        if slot >= 3 { break; }
+                        if slot >= 3 {
+                            break;
+                        }
                         if !used[i as usize] {
                             used[i as usize] = true;
                             packed |= i << (slot * 2);
@@ -4287,28 +4729,56 @@ fn main() {
             }
             "encoder" => update_encoder(&mut state, &line),
             "loadAudio" => {
-                let current_gain = state.players.get(&player_id).map(|runtime| runtime.state.gain).unwrap_or(1.0);
+                let current_gain = state
+                    .players
+                    .get(&player_id)
+                    .map(|runtime| runtime.state.gain)
+                    .unwrap_or(1.0);
                 let path = json_get_string(&line, "path").unwrap_or_default();
                 let gain = json_get_f32(&line, "gain").unwrap_or(current_gain);
-                let output_id = json_get_string(&line, "outputId").unwrap_or_else(|| "default".to_string());
-                let bus_id = json_get_string(&line, "bus").unwrap_or_else(|| default_bus_for_player(&player_id).to_string());
+                let output_id =
+                    json_get_string(&line, "outputId").unwrap_or_else(|| "default".to_string());
+                let bus_id = json_get_string(&line, "bus")
+                    .unwrap_or_else(|| default_bus_for_player(&player_id).to_string());
                 // `autoplay: true` → el player arranca inmediatamente (cartwall, overlays).
                 // `autoplay: false` (default) → carga en pausa; un `play` posterior lo inicia
                 // (playlist, editores). Si el campo está ausente, se comporta como false.
                 let autoplay = json_get_bool(&line, "autoplay").unwrap_or(false);
                 let resolved_output_id = resolve_output_for_bus(&state, &bus_id, &output_id);
-                if let Err(err) = load_audio_player(&mut state, &player_id, &path, gain, !autoplay, &resolved_output_id, &bus_id) {
+                if let Err(err) = load_audio_player(
+                    &mut state,
+                    &player_id,
+                    &path,
+                    gain,
+                    !autoplay,
+                    &resolved_output_id,
+                    &bus_id,
+                ) {
                     emit_error(&err, &request_id);
                 }
             }
             "labPlay" => {
-                let current = state.players.get(&player_id).map(|runtime| (runtime.state.path.clone(), runtime.state.gain)).unwrap_or_else(|| (String::new(), 1.0));
+                let current = state
+                    .players
+                    .get(&player_id)
+                    .map(|runtime| (runtime.state.path.clone(), runtime.state.gain))
+                    .unwrap_or_else(|| (String::new(), 1.0));
                 let path = json_get_string(&line, "path").unwrap_or(current.0);
                 let gain = json_get_f32(&line, "gain").unwrap_or(current.1);
-                let output_id = json_get_string(&line, "outputId").unwrap_or_else(|| "default".to_string());
-                let bus_id = json_get_string(&line, "bus").unwrap_or_else(|| default_bus_for_player(&player_id).to_string());
+                let output_id =
+                    json_get_string(&line, "outputId").unwrap_or_else(|| "default".to_string());
+                let bus_id = json_get_string(&line, "bus")
+                    .unwrap_or_else(|| default_bus_for_player(&player_id).to_string());
                 let resolved_output_id = resolve_output_for_bus(&state, &bus_id, &output_id);
-                if let Err(err) = load_audio_player(&mut state, &player_id, &path, gain, false, &resolved_output_id, &bus_id) {
+                if let Err(err) = load_audio_player(
+                    &mut state,
+                    &player_id,
+                    &path,
+                    gain,
+                    false,
+                    &resolved_output_id,
+                    &bus_id,
+                ) {
                     emit_error(&err, &request_id);
                 }
             }
@@ -4350,7 +4820,8 @@ fn main() {
                 // Si paran el player que actualmente sostiene la locución
                 // horaria, invalidamos la generación y limpiamos el
                 // reloj acumulativo de la pista virtual (HRS+MIN unificados).
-                if !state.time_locution_player.is_empty() && player_id == state.time_locution_player {
+                if !state.time_locution_player.is_empty() && player_id == state.time_locution_player
+                {
                     state.time_locution_counter.fetch_add(1, Ordering::SeqCst);
                     state.time_locution_player.clear();
                     state.time_locution_started_at = None;
@@ -4365,7 +4836,8 @@ fn main() {
                 let folder = json_get_string(&line, "folder").unwrap_or_default();
                 let gain = json_get_f32(&line, "gain").unwrap_or(1.0);
                 let bus_id = json_get_string(&line, "bus").unwrap_or_else(|| "jingle".to_string());
-                let output_id = json_get_string(&line, "outputId").unwrap_or_else(|| "default".to_string());
+                let output_id =
+                    json_get_string(&line, "outputId").unwrap_or_else(|| "default".to_string());
                 if folder.is_empty() {
                     emit_error("timeLocution: falta el campo 'folder'.", &request_id);
                 } else {
@@ -4373,8 +4845,20 @@ fn main() {
                     // (uso histórico del bus jingle como pisador). Cuando se lanza
                     // desde la playlist el renderer pasa "player-a"/"player-b" para
                     // que la locución se trate como una pista normal del programa.
-                    let time_player_id = if player_id == "probe" { "time-locucion".to_string() } else { player_id.clone() };
-                    match start_time_locution(&mut state, &time_player_id, &folder, gain, &output_id, &bus_id, &request_id) {
+                    let time_player_id = if player_id == "probe" {
+                        "time-locucion".to_string()
+                    } else {
+                        player_id.clone()
+                    };
+                    match start_time_locution(
+                        &mut state,
+                        &time_player_id,
+                        &folder,
+                        gain,
+                        &output_id,
+                        &bus_id,
+                        &request_id,
+                    ) {
                         Ok((duration_ms, files)) => {
                             let files_json = files
                                 .iter()
@@ -4400,10 +4884,19 @@ fn main() {
             }
             "seek" => {
                 if let Some(runtime) = state.players.get_mut(&player_id) {
-                    runtime.state.position_ms = json_get_u64(&line, "positionMs").unwrap_or(runtime.state.position_ms);
+                    runtime.state.position_ms =
+                        json_get_u64(&line, "positionMs").unwrap_or(runtime.state.position_ms);
                     if let Some(player) = &runtime.player {
-                        if let Err(err) = player.try_seek(Duration::from_millis(runtime.state.position_ms)) {
-                            emit_error(&format!("seek '{}' a {} ms fallo: {:?}", player_id, runtime.state.position_ms, err), &request_id);
+                        if let Err(err) =
+                            player.try_seek(Duration::from_millis(runtime.state.position_ms))
+                        {
+                            emit_error(
+                                &format!(
+                                    "seek '{}' a {} ms fallo: {:?}",
+                                    player_id, runtime.state.position_ms, err
+                                ),
+                                &request_id,
+                            );
                         }
                     }
                 }
@@ -4436,7 +4929,9 @@ fn main() {
                     .unwrap_or(runtime.state.gain)
                     .clamp(0.0, 2.0);
                 let duration_ms = json_get_u64(&line, "durationMs")
-                    .or_else(|| json_get_f32(&line, "seconds").map(|s| (s.max(0.0) * 1000.0).round() as u64))
+                    .or_else(|| {
+                        json_get_f32(&line, "seconds").map(|s| (s.max(0.0) * 1000.0).round() as u64)
+                    })
                     .unwrap_or(0);
                 let stop_after = json_get_bool(&line, "stopAfter").unwrap_or(false);
                 runtime.state.gain = from_gain;
@@ -4486,7 +4981,14 @@ fn main() {
                 let req_id_owned = request_id.clone();
                 thread::spawn(move || {
                     match compute_waveform_peaks(&path, target_bins, &cache_dir) {
-                        Ok((min_peaks, max_peaks, duration_ms, sample_rate, silence_start, silence_end)) => {
+                        Ok((
+                            min_peaks,
+                            max_peaks,
+                            duration_ms,
+                            sample_rate,
+                            silence_start,
+                            silence_end,
+                        )) => {
                             let min_json = floats_to_json(&min_peaks);
                             let max_json = floats_to_json(&max_peaks);
                             // Pre-formatear como un solo String y luego escribir
