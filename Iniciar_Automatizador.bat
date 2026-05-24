@@ -12,6 +12,13 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+node -e "const [M,m]=process.versions.node.split('.').map(Number); process.exit(M>22 || (M===22 && m>=12) ? 0 : 1)"
+if errorlevel 1 (
+    echo ERROR: se requiere Node.js 22.12.0 o superior.
+    echo Ejecuta primero Instalar_Dependencias.bat.
+    pause
+    exit /b 1
+)
 
 where npm >nul 2>nul
 if errorlevel 1 (

@@ -7,6 +7,19 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+pause_on_error() {
+    local status="$1"
+    if [ "$status" -ne 0 ]; then
+        echo ""
+        echo "ERROR: LF Automatizador no pudo iniciar. Codigo: $status"
+        echo "Ejecuta ./instalar_dependencias.sh y revisa instalar_dependencias.log si el problema continua."
+        if [ -t 0 ]; then
+            read -r -p "Presiona Enter para cerrar..." _ || true
+        fi
+    fi
+}
+trap 'pause_on_error $?' EXIT
+
 if df -T "$SCRIPT_DIR" 2>/dev/null | grep -q "vboxsf" || [[ "$SCRIPT_DIR" == *"/media/sf_"* ]] || [[ "$SCRIPT_DIR" == *"/mnt/sf_"* ]]; then
     echo ""
     echo "AVISO: carpeta compartida de VirtualBox detectada."
@@ -18,6 +31,12 @@ fi
 
 if ! command -v node >/dev/null 2>&1; then
     echo "ERROR: Node.js no esta instalado."
+    echo "Ejecuta primero: ./instalar_dependencias.sh"
+    exit 1
+fi
+
+if ! node -e "const [M,m]=process.versions.node.split('.').map(Number); process.exit(M>22 || (M===22 && m>=12) ? 0 : 1)"; then
+    echo "ERROR: se requiere Node.js 22.12.0 o superior."
     echo "Ejecuta primero: ./instalar_dependencias.sh"
     exit 1
 fi
