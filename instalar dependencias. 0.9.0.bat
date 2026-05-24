@@ -1,107 +1,189 @@
 @echo off
+setlocal EnableDelayedExpansion
 title Instalador de Dependencias - LF Automatizador 0.9.0
-color 0A
+color 0B
 
 cd /d "%~dp0"
 
-echo ========================================================
-echo   Instalando dependencias para LF Automatizador 0.9.0
-echo ========================================================
+echo ===============================================================================
+echo            LF AUTOMATIZADOR 0.9.0 - INSTALADOR DE DEPENDENCIAS
+echo ===============================================================================
+echo.
+echo Este asistente preparara tu sistema para poder usar el programa.
+echo Por favor, NO CIERRES ESTA VENTANA. Algunos procesos pueden tardar
+echo varios minutos en completarse y parecer que no avanzan. Es normal.
+echo.
+echo ===============================================================================
 echo.
 
-echo Verificando instalacion de Node.js...
+:: 1. Verificando Node.js
+echo [1/6] Verificando instalacion de Node.js...
 node -v >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Node.js no esta instalado o no esta en el PATH.
-    echo Por favor, instala Node.js ^(v18 o superior^) e intenta nuevamente.
+    color 0C
+    echo [ERROR CRITICO] Node.js no esta instalado o no fue detectado en el sistema.
+    echo El programa requiere Node.js ^(version 18 o superior^) para funcionar.
+    echo Por favor, descargalo e instalalo desde: https://nodejs.org/
+    echo Asegurate de marcar la opcion "Add to PATH" durante la instalacion.
+    echo.
     pause
     exit /b 1
+) else (
+    for /f "tokens=*" %%v in ('node -v') do set NODE_VERSION=%%v
+    echo [OK] Node.js !NODE_VERSION! detectado correctamente.
 )
+echo.
 
-echo Verificando instalacion de Cargo ^(Rust^)...
+:: 2. Verificando/Instalando Rust (GNU)
+echo [2/6] Verificando entorno de compilacion Rust...
 cargo -V >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [INFO] Cargo ^(Rust^) no esta instalado. Procediendo a instalarlo automaticamente...
-    echo Descargando instalador de Rust...
+    echo [INFO] Rust no esta instalado. Se procedera con la descarga e instalacion automatica.
+    echo [INFO] Descargando instalador de Rust ^(esto requiere conexion a internet^)...
     powershell -Command "Invoke-WebRequest -Uri 'https://win.rustup.rs/' -OutFile 'rustup-init.exe'"
-    echo Instalando Rust ^(version GNU para no depender de Visual Studio^)...
-    echo Por favor espera mientras se descargan e instalan las herramientas...
-    rustup-init.exe -y --default-host x86_64-pc-windows-gnu
+    if not exist "rustup-init.exe" (
+        color 0C
+        echo [ERROR] No se pudo descargar el instalador de Rust. Verifica tu conexion a internet.
+        pause
+        exit /b 1
+    )
+    
+    echo [INFO] Instalando Rust ^(Version GNU ligera, esto puede tardar unos minutos^)...
+    rustup-init.exe -y --default-host x86_64-pc-windows-gnu --profile minimal
     del rustup-init.exe
-    echo Rust instalado correctamente.
-    :: Añadir Rust al PATH temporalmente para que el script pueda continuar inmediatamente
+    
+    :: Asegurar PATH temporal para esta sesion
     set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+    
+    cargo -V >nul 2>&1
+    if !errorlevel! neq 0 (
+        color 0C
+        echo [ERROR] La instalacion de Rust fallo o no se configuro correctamente.
+        pause
+        exit /b 1
+    )
+    echo [OK] Rust instalado correctamente.
 ) else (
-    echo [INFO] Rust ya esta instalado. Configurando compatibilidad GNU...
-    echo ^(Esto descargara herramientas ligeras si no las tienes, por favor espera...^)
-    rustup default stable-gnu
+    echo [OK] Rust detectado. Configurando compatibilidad GNU...
+    rustup default stable-gnu >nul 2>&1
+)
+echo.
+
+:: 3. Verificando/Instalando compilador C/C++ ligero (w64devkit)
+echo [3/6] Preparando entorno C/C++ para dependencias nativas...
+set "W64_BIN=%USERPROFILE%\w64devkit\bin"
+set "W64_LIB=%USERPROFILE%\w64devkit\x86_64-w64-mingw32\lib"
+
+if not exist "%W64_BIN%\gcc.exe" (
+    echo [INFO] El compilador C/C++ ligero no esta instalado.
+    echo [INFO] Descargando compilador portatil ^(aprox. 80MB^). Por favor espera...
+    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/skeeto/w64devkit/releases/download/v1.20.0/w64devkit-1.20.0.zip' -OutFile 'w64devkit.zip'"
+    
+    if not exist "w64devkit.zip" (
+        color 0C
+        echo [ERROR] Fallo la descarga del compilador. Verifica tu conexion a internet.
+        pause
+        exit /b 1
+    )
+
+    echo [INFO] Extrayendo compilador en tu carpeta de usuario. Esto puede tomar un minuto...
+    powershell -Command "Expand-Archive -Path 'w64devkit.zip' -DestinationPath '%USERPROFILE%\' -Force"
+    del w64devkit.zip
+    
+    if not exist "%W64_BIN%\gcc.exe" (
+        color 0C
+        echo [ERROR] La extraccion del compilador fallo.
+        pause
+        exit /b 1
+    )
+    echo [OK] Compilador C/C++ instalado correctamente.
+) else (
+    echo [OK] Compilador C/C++ detectado.
 )
 
-echo.
-echo [1/6] Instalando dependencias de Node.js...
-echo Por favor espera, esto descargara paquetes y puede tardar varios minutos...
-call npm install
-if %errorlevel% neq 0 (
-    echo [ERROR] Fallo la instalacion de dependencias de Node.
-    pause
-    exit /b 1
-)
+:: Anadir w64devkit al PATH para compilacion nativa
+set "PATH=%W64_BIN%;%PATH%"
 
-echo.
-echo [2/6] Reconstruyendo modulos nativos para Electron...
-echo Este proceso puede demorar varios minutos mientras compila codigo fuente nativo...
-call npx electron-rebuild
-if %errorlevel% neq 0 (
-    echo [ADVERTENCIA] electron-rebuild termino con errores.
-)
-
-echo.
-echo [3/6] Preparando entorno de compilacion C++ ligero...
-where dlltool >nul 2>&1
-if %errorlevel% neq 0 (
-    if not exist "%USERPROFILE%\w64devkit\bin\dlltool.exe" (
-        echo [INFO] Faltan herramientas de enlace nativas ^(dlltool^).
-        echo Descargando compilador ligero y portatil ^(aprox 80MB^)...
-        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/skeeto/w64devkit/releases/download/v1.20.0/w64devkit-1.20.0.zip' -OutFile 'w64devkit.zip'"
-        echo Extrayendo compilador en tu carpeta de usuario...
-        powershell -Command "Expand-Archive -Path 'w64devkit.zip' -DestinationPath '%USERPROFILE%\' -Force"
-        del w64devkit.zip
-        echo Compilador instalado correctamente.
+:: Aplicar fix para el error "-lgcc_eh" comun en Rust GNU con w64devkit
+if exist "%W64_LIB%" (
+    if not exist "%W64_LIB%\libgcc_eh.a" (
+        echo [INFO] Aplicando parche de compatibilidad interna para el linker (libgcc_eh)...
+        "%W64_BIN%\ar.exe" rc "%W64_LIB%\libgcc_eh.a" 2>nul
+    )
+) else (
+    if exist "%USERPROFILE%\w64devkit\lib" (
+        if not exist "%USERPROFILE%\w64devkit\lib\libgcc_eh.a" (
+            echo [INFO] Aplicando parche de compatibilidad interna para el linker (libgcc_eh)...
+            "%W64_BIN%\ar.exe" rc "%USERPROFILE%\w64devkit\lib\libgcc_eh.a" 2>nul
+        )
     )
 )
-:: Asegurar que el compilador este en el PATH para este script
-if exist "%USERPROFILE%\w64devkit\bin" (
-    set "PATH=%USERPROFILE%\w64devkit\bin;%PATH%"
+echo.
+
+:: 4. Instalando dependencias de Node.js
+echo [4/6] Instalando dependencias del entorno Node.js...
+echo [INFO] Descargando e instalando paquetes...
+echo [INFO] Por favor, ten paciencia, puede tomar varios minutos. No te preocupes por las advertencias (WARN).
+call npm install
+if %errorlevel% neq 0 (
+    color 0E
+    echo [ADVERTENCIA] Hubo errores al instalar paquetes, intentando continuar de todas formas...
 )
 
 echo.
-echo [4/6] Compilando motor de audio en Rust...
-echo Veras el progreso y descargas de paquetes a continuacion...
+echo [INFO] Preparando librerias nativas de Node... ESTO PUEDE TOMAR BASTANTE TIEMPO.
+echo [INFO] La consola puede parecer congelada. NO LA CIERRES.
+call npx electron-rebuild
+if %errorlevel% neq 0 (
+    color 0E
+    echo [ADVERTENCIA] electron-rebuild reporto un error, pero podria ser no critico.
+)
+echo [OK] Dependencias de Node.js listas.
+echo.
+
+:: 5. Compilando motor de audio Rust
+echo [5/6] Compilando el Motor de Audio interno...
+echo [INFO] Se estan descargando componentes y compilando el codigo en Rust.
+echo [INFO] Este es el paso que mas tiempo consume. Dependiendo de tu PC puede tardar de 1 a 5 minutos.
+echo [INFO] Por favor espera a que aparezca "Finalizado".
+
 cd audio-engine-rust
 call cargo build --release
 if %errorlevel% neq 0 (
-    echo [ERROR] Fallo la compilacion del motor de audio en Rust.
+    color 0C
+    echo.
+    echo [ERROR CRITICO] Fallo la compilacion del motor de audio en Rust.
+    echo Revisa si hay errores mas arriba. El programa necesita este motor.
     cd ..
     pause
     exit /b 1
 )
 
-echo.
-echo [5/6] Moviendo binario y limpiando archivos temporales de Rust...
+echo [OK] Compilacion finalizada correctamente.
+echo [INFO] Guardando el ejecutable optimizado...
 if not exist "..\bin" mkdir "..\bin"
 copy /Y target\release\lf-audio-engine.exe "..\bin\lf-audio-engine.exe" >nul
-echo Limpiando temporales pesados de Rust para ahorrar espacio...
-call cargo clean
+
+echo [INFO] Limpiando archivos temporales pesados para ahorrar espacio en disco...
+call cargo clean >nul 2>&1
 cd ..
-
 echo.
-echo [6/6] Limpiando cache de Node.js...
-call npm cache clean --force
 
+:: 6. Limpieza final
+echo [6/6] Tareas finales de limpieza y optimizacion...
+call npm cache clean --force >nul 2>&1
+echo [OK] Optimizacion terminada.
 echo.
-echo ========================================================
-echo   Instalacion y limpieza completadas con exito.
-echo   Iniciando LF Automatizador 0.9.0...
-echo ========================================================
+
+color 0A
+echo ===============================================================================
+echo            INSTALACION COMPLETADA CON EXITO
+echo ===============================================================================
+echo.
+echo Todas las dependencias han sido instaladas correctamente.
+echo Ya puedes disfrutar de LF Automatizador.
+echo.
+echo Iniciando programa en 3 segundos...
 timeout /t 3 >nul
 start "" "Iniciar automatizador 0.9.0.bat"
+exit
