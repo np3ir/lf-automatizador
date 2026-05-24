@@ -24,12 +24,15 @@ if %errorlevel% neq 0 (
     echo [INFO] Cargo ^(Rust^) no esta instalado. Procediendo a instalarlo automaticamente...
     echo Descargando instalador de Rust...
     powershell -Command "Invoke-WebRequest -Uri 'https://win.rustup.rs/' -OutFile 'rustup-init.exe'"
-    echo Instalando Rust de forma silenciosa...
-    rustup-init.exe -y -q
+    echo Instalando Rust ^(version GNU para no depender de Visual Studio^)...
+    rustup-init.exe -y -q --default-host x86_64-pc-windows-gnu
     del rustup-init.exe
     echo Rust instalado correctamente.
     :: Añadir Rust al PATH temporalmente para que el script pueda continuar inmediatamente
     set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+) else (
+    echo [INFO] Rust ya esta instalado. Configurando compatibilidad GNU...
+    rustup default stable-gnu >nul 2>&1
 )
 
 echo.
