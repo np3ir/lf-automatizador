@@ -2,11 +2,12 @@ const { ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const Fuse = require('fuse.js');
+const { getConfigDir } = require('../backend/utils/app_paths');
 
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => e.preventDefault());
 
-const configDir = path.join(__dirname, '..', 'config');
+const configDir = getConfigDir(path.join(__dirname, '..', 'config'), __dirname);
 const libSessionPath = path.join(configDir, 'lib_session.json');
 const libraryPrefsPath = path.join(configDir, 'library_prefs.json');
 

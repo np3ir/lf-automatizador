@@ -1,10 +1,10 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const { getConfigDir } = require('./backend/utils/app_paths');
 
 // Aseguramos que el directorio config existe
-const configDir = path.join(__dirname, 'config');
-if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+const configDir = getConfigDir(path.join(__dirname, 'config'), __dirname);
 
 function readAppChannel() {
     const channelPath = path.join(configDir, 'app_channel.json');

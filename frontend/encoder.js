@@ -1,9 +1,9 @@
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { getConfigDir } = require('../backend/utils/app_paths');
 
-const configDir = path.join(__dirname, '..', 'config');
-if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+const configDir = getConfigDir(path.join(__dirname, '..', 'config'), __dirname);
 const encoderPrefsPath = path.join(configDir, 'encoder_prefs.json');
 
 let encPrefs = {

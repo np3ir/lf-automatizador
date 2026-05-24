@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const { normalizeAudioPrefs } = require('./audio_prefs');
+const { getConfigDir } = require('../backend/utils/app_paths');
 
-const configDir = path.join(__dirname, '..', 'config');
+const configDir = getConfigDir(path.join(__dirname, '..', 'config'), __dirname);
 const generalPrefsPath = path.join(configDir, 'general_settings.json');
 
 function loadAudioPrefs() {

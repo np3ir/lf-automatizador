@@ -11,6 +11,7 @@ const url = require('url');
 const { ipcRenderer, webUtils } = require('electron');
 const { normalizeAudioPrefs } = require('./audio_prefs');
 const { AudioEngineClient, RustAudioEngineAdapter } = require('./audio_engine_client');
+const { getConfigDir } = require('../backend/utils/app_paths');
 
 
 document.addEventListener('dragover', (e) => e.preventDefault());
@@ -50,8 +51,7 @@ async function* walkAudioFilesAsync(dir) {
     }
 }
 
-const configDir = path.join(__dirname, '..', 'config');
-if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+const configDir = getConfigDir(path.join(__dirname, '..', 'config'), __dirname);
 
 const uiPrefsPath = path.join(configDir, 'ui_prefs.json');
 const fxPrefsPath = path.join(configDir, 'fx_prefs.json');

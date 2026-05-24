@@ -1,8 +1,9 @@
 const { parentPort } = require('worker_threads');
 const path = require('path');
 const db = require('../database');
+const { getConfigDir } = require('./utils/app_paths');
 
-const configDir = path.join(__dirname, '..', 'config');
+const configDir = getConfigDir(path.join(__dirname, '..', 'config'), __dirname);
 const fileTypesPath = path.join(configDir, 'file_types.json');
 const explicitTypesPath = path.join(configDir, 'explicit_types.json');
 const fs = require('fs');

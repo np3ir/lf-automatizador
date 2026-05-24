@@ -5,6 +5,7 @@ const cp = require('child_process');
 const os = require('os');
 const { Worker } = require('worker_threads');
 const nodeID3 = require('node-id3');
+const { getConfigDir } = require('./backend/utils/app_paths');
 const db = require('./database');
 const { RustAudioEngineProbe } = require('./backend/audio_engine_process');
 const { cleanCsvList, mergeCsvList, cleanMetaString, tokenSet, jaccard, waitRateLimit } = require('./backend/utils/helpers.js');
@@ -612,8 +613,7 @@ ipcMain.handle('task-manager-snapshot', async () => {
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
-const configDir = path.join(__dirname, 'config');
-if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+const configDir = getConfigDir(path.join(__dirname, 'config'), __dirname);
 
 const uiPrefsPath = path.join(configDir, 'ui_prefs.json');
 let uiPrefs = { menuVisible: true, controlsPos: 'bottom', temp: true, hum: true, leftPanel: true, ext: false, sysLog: true, showRemainingTime: false, cartwall: false };

@@ -2,9 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const { ipcRenderer } = require('electron');
 const { normalizeAudioPrefs } = require('./audio_prefs');
+const { getConfigDir } = require('../backend/utils/app_paths');
 
-const configDir = path.join(__dirname, '..', 'config');
-if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+const configDir = getConfigDir(path.join(__dirname, '..', 'config'), __dirname);
 
 const fileTypesPath = path.join(configDir, 'file_types.json');
 const generalPrefsPath = path.join(configDir, 'general_settings.json');
