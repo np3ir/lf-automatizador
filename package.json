@@ -35,16 +35,14 @@
       "bin/**/*"
     ],
     "win": {
-      "target": "nsis",
-      "icon": "Documentación/guia_primer_uso.jpg"
+      "target": "nsis"
     },
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "category": "AudioVideo",
-      "icon": "Documentación/guia_primer_uso.jpg"
+      "category": "AudioVideo"
     }
   }
 }
