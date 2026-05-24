@@ -38,7 +38,7 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [1/5] Instalando dependencias de Node.js...
+echo [1/6] Instalando dependencias de Node.js...
 echo Por favor espera, esto descargara paquetes y puede tardar varios minutos...
 call npm install
 if %errorlevel% neq 0 (
@@ -48,7 +48,7 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [2/5] Reconstruyendo modulos nativos para Electron...
+echo [2/6] Reconstruyendo modulos nativos para Electron...
 echo Este proceso puede demorar varios minutos mientras compila codigo fuente nativo...
 call npx electron-rebuild
 if %errorlevel% neq 0 (
@@ -56,7 +56,26 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [3/5] Compilando motor de audio en Rust...
+echo [3/6] Preparando entorno de compilacion C++ ligero...
+where dlltool >nul 2>&1
+if %errorlevel% neq 0 (
+    if not exist "%USERPROFILE%\w64devkit\bin\dlltool.exe" (
+        echo [INFO] Faltan herramientas de enlace nativas ^(dlltool^).
+        echo Descargando compilador ligero y portatil ^(aprox 80MB^)...
+        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/skeeto/w64devkit/releases/download/v1.20.0/w64devkit-1.20.0.zip' -OutFile 'w64devkit.zip'"
+        echo Extrayendo compilador en tu carpeta de usuario...
+        powershell -Command "Expand-Archive -Path 'w64devkit.zip' -DestinationPath '%USERPROFILE%\' -Force"
+        del w64devkit.zip
+        echo Compilador instalado correctamente.
+    )
+)
+:: Asegurar que el compilador este en el PATH para este script
+if exist "%USERPROFILE%\w64devkit\bin" (
+    set "PATH=%USERPROFILE%\w64devkit\bin;%PATH%"
+)
+
+echo.
+echo [4/6] Compilando motor de audio en Rust...
 echo Veras el progreso y descargas de paquetes a continuacion...
 cd audio-engine-rust
 call cargo build --release
@@ -68,7 +87,7 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [4/5] Moviendo binario y limpiando archivos temporales de Rust...
+echo [5/6] Moviendo binario y limpiando archivos temporales de Rust...
 if not exist "..\bin" mkdir "..\bin"
 copy /Y target\release\lf-audio-engine.exe "..\bin\lf-audio-engine.exe" >nul
 echo Limpiando temporales pesados de Rust para ahorrar espacio...
@@ -76,7 +95,7 @@ call cargo clean
 cd ..
 
 echo.
-echo [5/5] Limpiando cache de Node.js...
+echo [6/6] Limpiando cache de Node.js...
 call npm cache clean --force
 
 echo.
