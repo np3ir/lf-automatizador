@@ -5,7 +5,10 @@
 > 📖 **¿No eres desarrollador?** Si estás aquí porque te interesa el proyecto y quieres conocer cómo y por qué nació este software, por favor tómate un momento para leer **[Mi Historia y la Filosofía detrás del Automatizador](#-la-historia-y-filosofía-detrás-de-lf-automatizador)**.
 
 ![Estado](https://img.shields.io/badge/Estado-Open_Source-green)
-![Plataforma](https://img.shields.io/badge/Plataforma-Windows%20%7C%20Linux%20(Beta)-blue)
+![Plataforma](https://img.shields.io/badge/Plataforma-Windows%20%7C%20Linux-blue)
+
+- 📢 **Telegram Información:** [Canal de información](https://t.me/+XKof2wDvGVw1YTRh)
+- 👥 **Telegram Chat:** [Chat de la comunidad](https://t.me/+bXppwWvJvSg5YjNh)
 
 **LF Automatizador** es un software multiplataforma avanzado diseñado específicamente para **radio profesional** y **transmisión por Internet** (Web Radio / Streaming). Ofrece herramientas precisas de ruteo, programación de eventos, gestión de librerías y control de emisión de primer nivel.
 
