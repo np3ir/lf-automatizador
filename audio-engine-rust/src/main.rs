@@ -2768,10 +2768,83 @@ fn load_audio_player(state: &mut EngineState, player_id: &str, file_path: &str, 
     runtime.state.position_ms = 0;
     runtime.state.duration_ms = duration_ms;
     runtime.state.gain = gain.clamp(0.0, 2.0);
+    runtime.state.fade_active = false;
+    runtime.state.fade_start_gain = runtime.state.gain;
+    runtime.state.fade_target_gain = runtime.state.gain;
+    runtime.state.fade_started_at_ms = 0;
+    runtime.state.fade_duration_ms = 0;
+    runtime.state.fade_stop_after = false;
     runtime.state.bus_id = bus_id.to_string();
     runtime.state.output_device_id = resolved_output_id;
     runtime.state.output_device_name = resolved_output_name;
     runtime.player = Some(player);
+    Ok(())
+}
+
+fn release_runtime_player(runtime: &mut RuntimePlayer) {
+    runtime.state.fade_active = false;
+    runtime.state.fade_stop_after = false;
+    runtime.state.fade_duration_ms = 0;
+    runtime.state.position_ms = 0;
+    runtime.meter.reset();
+    if let Some(player) = runtime.player.take() {
+        player.stop();
+    }
+}
+
+fn player_needs_rebuild(runtime: &RuntimePlayer) -> bool {
+    match runtime.player.as_ref() {
+        Some(player) => player.empty(),
+        None => !runtime.state.path.trim().is_empty(),
+    }
+}
+
+fn play_existing_or_rebuild_player(state: &mut EngineState, player_id: &str) -> Result<(), String> {
+    let Some(runtime) = state.players.get(player_id) else {
+        return Err(format!("Player '{}' no existe.", player_id));
+    };
+
+    if !player_needs_rebuild(runtime) {
+        if let Some(runtime) = state.players.get_mut(player_id) {
+            runtime.state.status = "playing".to_string();
+            if let Some(player) = &runtime.player {
+                player.play();
+            }
+        }
+        return Ok(());
+    }
+
+    let path = runtime.state.path.clone();
+    if path.trim().is_empty() || path == "<time-locution>" {
+        return Err(format!("Player '{}' no tiene audio cargado.", player_id));
+    }
+    let gain = runtime.state.gain;
+    let bus_id = if runtime.state.bus_id.trim().is_empty() {
+        default_bus_for_player(player_id).to_string()
+    } else {
+        runtime.state.bus_id.clone()
+    };
+    let fallback_output_id = runtime.state.output_device_id.clone();
+    let requested_pos_ms = runtime.state.position_ms;
+    let duration_ms = runtime.state.duration_ms;
+    let seek_ms = if duration_ms > 0 && requested_pos_ms.saturating_add(250) >= duration_ms {
+        0
+    } else {
+        requested_pos_ms
+    };
+    let output_id = resolve_output_for_bus(state, &bus_id, &fallback_output_id);
+
+    load_audio_player(state, player_id, &path, gain, true, &output_id, &bus_id)?;
+    if let Some(runtime) = state.players.get_mut(player_id) {
+        runtime.state.status = "playing".to_string();
+        runtime.state.position_ms = seek_ms;
+        if let Some(player) = &runtime.player {
+            if seek_ms > 0 {
+                let _ = player.try_seek(Duration::from_millis(seek_ms));
+            }
+            player.play();
+        }
+    }
     Ok(())
 }
 
@@ -2885,11 +2958,7 @@ fn process_player_fades(state: &mut EngineState) {
     for player_id in stop_after {
         if let Some(runtime) = state.players.get_mut(&player_id) {
             runtime.state.status = "stopped".to_string();
-            runtime.state.position_ms = 0;
-            runtime.meter.reset();
-            if let Some(player) = runtime.player.take() {
-                player.stop();
-            }
+            release_runtime_player(runtime);
         }
     }
 }
@@ -3938,6 +4007,12 @@ fn start_time_locution(
     runtime.state.position_ms = 0;
     runtime.state.duration_ms = total_ms;
     runtime.state.gain = gain.clamp(0.0, 2.0);
+    runtime.state.fade_active = false;
+    runtime.state.fade_start_gain = runtime.state.gain;
+    runtime.state.fade_target_gain = runtime.state.gain;
+    runtime.state.fade_started_at_ms = 0;
+    runtime.state.fade_duration_ms = 0;
+    runtime.state.fade_stop_after = false;
     runtime.state.bus_id = bus_id.to_string();
     runtime.state.output_device_id = resolved_output_id;
     runtime.state.output_device_name = String::new();
@@ -4293,10 +4368,8 @@ fn main() {
                 }
             }
             "play" => {
-                let runtime = state.players.entry(player_id.clone()).or_default();
-                runtime.state.status = "playing".to_string();
-                if let Some(player) = &runtime.player {
-                    player.play();
+                if let Err(err) = play_existing_or_rebuild_player(&mut state, &player_id) {
+                    emit_error(&err, &request_id);
                 }
             }
             "pause" => {
@@ -4318,11 +4391,7 @@ fn main() {
             "stop" => {
                 if let Some(runtime) = state.players.get_mut(&player_id) {
                     runtime.state.status = "stopped".to_string();
-                    runtime.state.position_ms = 0;
-                    runtime.meter.reset();
-                    if let Some(player) = runtime.player.take() {
-                        player.stop();
-                    }
+                    release_runtime_player(runtime);
                 }
                 if is_diagnostic_player(&player_id) {
                     state.players.remove(&player_id);
@@ -4392,6 +4461,8 @@ fn main() {
                 let new_gain = {
                     let runtime = state.players.entry(player_id.clone()).or_default();
                     runtime.state.fade_active = false;
+                    runtime.state.fade_stop_after = false;
+                    runtime.state.fade_duration_ms = 0;
                     runtime.state.gain = json_get_f32(&line, "gain")
                         .unwrap_or(runtime.state.gain)
                         .clamp(0.0, 2.0);
@@ -4431,11 +4502,7 @@ fn main() {
                     }
                     if stop_after {
                         runtime.state.status = "stopped".to_string();
-                        runtime.state.position_ms = 0;
-                        runtime.meter.reset();
-                        if let Some(player) = runtime.player.take() {
-                            player.stop();
-                        }
+                        release_runtime_player(runtime);
                     }
                 } else {
                     runtime.state.fade_active = true;
