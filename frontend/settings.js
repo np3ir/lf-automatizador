@@ -40,15 +40,38 @@ const defaultFadeProfile = {
 
 const defaultFileTypes = [
     { id: 't_comercial', name: 'Comercial', color: '#ff0000', identifier: 'comercial', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, ...defaultFadeProfile },
-    { id: 't_time', name: 'Locución horaria', color: '#2ecc71', identifier: 'saytime', searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, ...defaultFadeProfile },
-    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: false, ...defaultFadeProfile }
+    { id: 't_time', name: 'Locuciones', color: '#2ecc71', identifier: 'locucion', aliases: ['saytime', 'time_locution', 'temperature_locution', 'humidity_locution'], searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, ...defaultFadeProfile },
+    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, ...defaultFadeProfile }
 ];
 
-let fileTypesData = loadConfig(fileTypesPath, defaultFileTypes).map(typeData => {
-    const migrated = { ...typeData, mixFadeoutActive: typeData.mixFadeoutActive === true };
-    delete migrated.mixFadeout;
-    return migrated;
-});
+function normalizeFileTypes(types) {
+    const loadedTypes = Array.isArray(types) ? types : [];
+    const byId = new Map(loadedTypes.map(typeData => [typeData.id, typeData]));
+    const builtInIds = new Set(defaultFileTypes.map(typeData => typeData.id));
+    const normalized = defaultFileTypes.map(defaultType => {
+        const stored = byId.get(defaultType.id) || {};
+        const migrated = {
+            ...defaultType,
+            ...stored,
+            name: defaultType.name,
+            identifier: defaultType.identifier,
+            aliases: defaultType.aliases || [],
+            readonly: true,
+            mixFadeoutActive: stored.mixFadeoutActive === true
+        };
+        delete migrated.mixFadeout;
+        return migrated;
+    });
+    loadedTypes.forEach(typeData => {
+        if (!typeData?.id || builtInIds.has(typeData.id)) return;
+        const migrated = { ...typeData, mixFadeoutActive: typeData.mixFadeoutActive === true };
+        delete migrated.mixFadeout;
+        normalized.push(migrated);
+    });
+    return normalized;
+}
+
+let fileTypesData = normalizeFileTypes(loadConfig(fileTypesPath, defaultFileTypes));
 let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, {
     modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, 
     timeFolder: '', weatherFolder: '', weatherTemperatureFolder: '', weatherHumidityFolder: '', duckingFade: 1.0, duckingVolume: 20,
@@ -107,6 +130,11 @@ function loadTypeDetails(id) {
     document.getElementById('type-amp').value = t.amp;
     document.getElementById('type-report').checked = t.report;
     document.getElementById('type-voice').checked = t.voice;
+    const delBtn = document.getElementById('btn-del-type');
+    if (delBtn) {
+        delBtn.disabled = t.readonly === true;
+        delBtn.title = t.readonly ? 'Tipo predeterminado: no se puede eliminar' : 'Eliminar seleccionado';
+    }
 }
 
 selTipoArchivo.addEventListener('change', (e) => {

@@ -345,11 +345,37 @@ const defaultFadeProfile = {
 };
 const defaultFileTypes = [
     { id: 't_comercial', name: 'Comercial', color: '#ff0000', identifier: 'comercial', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, ...defaultFadeProfile },
-    { id: 't_time', name: 'Locución horaria', color: '#2ecc71', identifier: 'saytime', searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, ...defaultFadeProfile },
-    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: false, ...defaultFadeProfile }
+    { id: 't_time', name: 'Locuciones', color: '#2ecc71', identifier: 'locucion', aliases: ['saytime', 'time_locution', 'temperature_locution', 'humidity_locution'], searchIn: 'all', amp: 0, report: true, voice: true, readonly: true, ...defaultFadeProfile },
+    { id: 't_station_id', name: 'Station ID', color: '#3498db', identifier: 'id', searchIn: 'all', amp: 0, report: true, voice: false, readonly: true, ...defaultFadeProfile }
 ];
 let fileTypesData = [];
-function loadFileTypes() { fileTypesData = loadConfig(fileTypesPath, defaultFileTypes); }
+function normalizeFileTypes(types) {
+    const loadedTypes = Array.isArray(types) ? types : [];
+    const byId = new Map(loadedTypes.map(typeData => [typeData.id, typeData]));
+    const builtInIds = new Set(defaultFileTypes.map(typeData => typeData.id));
+    const normalized = defaultFileTypes.map(defaultType => {
+        const stored = byId.get(defaultType.id) || {};
+        const migrated = {
+            ...defaultType,
+            ...stored,
+            name: defaultType.name,
+            identifier: defaultType.identifier,
+            aliases: defaultType.aliases || [],
+            readonly: true,
+            mixFadeoutActive: stored.mixFadeoutActive === true
+        };
+        delete migrated.mixFadeout;
+        return migrated;
+    });
+    loadedTypes.forEach(typeData => {
+        if (!typeData?.id || builtInIds.has(typeData.id)) return;
+        const migrated = { ...typeData, mixFadeoutActive: typeData.mixFadeoutActive === true };
+        delete migrated.mixFadeout;
+        normalized.push(migrated);
+    });
+    return normalized;
+}
+function loadFileTypes() { fileTypesData = normalizeFileTypes(loadConfig(fileTypesPath, defaultFileTypes)); }
 loadFileTypes();
 let genreProfiles = [];
 
@@ -2786,6 +2812,8 @@ async function restoreSessionState() {
         const queuedRow = state.queuedNext ? getRowByLocation(state.queuedNext) : null;
         const preferredViewTab = resumeRow
             ? (getRowLocation(resumeRow)?.tab ?? storedPgmTab)
+            : queuedRow
+                ? (getRowLocation(queuedRow)?.tab ?? storedPgmTab)
             : (Number.isInteger(state.currentViewTab) && tbodys[state.currentViewTab] ? state.currentViewTab : storedPgmTab);
 
         applySessionViewState(preferredViewTab);
@@ -5013,7 +5041,7 @@ window.setExplicitTypeExplorer = function (typeId) {
     const ruta = contextMenuTargetFolder; if (!ruta) return;
     if (typeId === 'default') delete explicitTypesDB[ruta]; else explicitTypesDB[ruta] = typeId;
     saveExplicitTypes(); hideAllMenus();
-    document.querySelectorAll('.playlist-table tr').forEach(tr => { const typeData = getTrackTypeData(tr.dataset.ruta); const rowColor = (tr.dataset.type === 'time') ? '#2ecc71' : (tr.dataset.type === 'random') ? '#f39c12' : (typeData ? typeData.color : '#e0e0e0'); tr.style.color = rowColor; });
+    document.querySelectorAll('.playlist-table tr').forEach(tr => { tr.style.color = getPlaylistRowColor(tr); });
 };
 
 document.getElementById('ctx-add-random').addEventListener('click', async () => { let targetRow = document.querySelector('.selected-row'); if (contextMenuTargetFolder) await addRandomFolderToPlaylist(contextMenuTargetFolder, targetRow, 'bottom', playlistBody); hideAllMenus(); });
@@ -5213,7 +5241,7 @@ function createPlaylistRow(ruta, nombre, duracionSegundos, type = 'normal', inse
     tr.dataset.type = type;
 
     const typeData = getTrackTypeData(ruta);
-    const rowColor = (type === 'time') ? '#2ecc71' : (type === 'temperature') ? '#f1c40f' : (type === 'humidity') ? '#3498db' : (type === 'random') ? '#f39c12' : (typeData ? typeData.color : '#e0e0e0');
+    const rowColor = getPlaylistRowColor(type, ruta);
     tr.style.color = rowColor;
     if (type === 'time' || type === 'random' || isClimateLocutionType(type)) tr.style.fontStyle = 'italic';
 
@@ -5454,7 +5482,7 @@ if (playlistSection) {
 window.setExplicitType = function (typeId) {
     document.querySelectorAll('.selected-row').forEach(tr => {
         const ruta = tr.dataset.ruta; if (typeId === 'default') { delete explicitTypesDB[ruta]; } else { explicitTypesDB[ruta] = typeId; }
-        const typeData = getTrackTypeData(ruta); const rowColor = (tr.dataset.type === 'time') ? '#2ecc71' : (tr.dataset.type === 'random') ? '#f39c12' : (typeData ? typeData.color : '#e0e0e0'); tr.style.color = rowColor;
+        tr.style.color = getPlaylistRowColor(tr);
     }); saveExplicitTypes(); hideAllMenus();
 }
 
@@ -5572,8 +5600,10 @@ function getTrackTypeData(filePath) {
 
     const nameStr = path.basename(filePath).toLowerCase();
     for (let t of types) {
-        if (t.identifier && t.identifier.trim() !== '') {
-            const iden = t.identifier.toLowerCase().trim();
+        const identifiers = [t.identifier, ...(Array.isArray(t.aliases) ? t.aliases : [])].filter(Boolean);
+        for (const rawIdentifier of identifiers) {
+            if (!rawIdentifier || rawIdentifier.trim() === '') continue;
+            const iden = rawIdentifier.toLowerCase().trim();
             if (/^[a-z0-9]+$/.test(iden)) {
                 const regex = new RegExp('\\b' + iden + '\\b', 'i');
                 if (regex.test(nameStr)) return t;
@@ -5583,6 +5613,23 @@ function getTrackTypeData(filePath) {
         }
     }
     return null;
+}
+
+function getLocutionTypeData() {
+    return fileTypesData.find(t => t.id === 't_time')
+        || fileTypesData.find(t => /locuci|locution|hora|time|saytime/i.test(`${t.name} ${t.identifier} ${(t.aliases || []).join(' ')}`))
+        || null;
+}
+
+function getPlaylistRowColor(rowOrType, ruta = '') {
+    const type = typeof rowOrType === 'string' ? rowOrType : (rowOrType?.dataset?.type || '');
+    const filePath = ruta || (typeof rowOrType === 'string' ? '' : (rowOrType?.dataset?.ruta || ''));
+    if (type === 'time' || isClimateLocutionType(type) || filePath === 'time_locution' || filePath === 'temperature_locution' || filePath === 'humidity_locution') {
+        return getLocutionTypeData()?.color || '#2ecc71';
+    }
+    if (type === 'random') return '#f39c12';
+    const typeData = getTrackTypeData(filePath);
+    return typeData ? typeData.color : '#e0e0e0';
 }
 
 function normalizeRotationText(value) {
@@ -8299,7 +8346,7 @@ function handleTimeUpdate(player) {
     let isMusic = currentDuration >= 90;
     if (isMusic && currentPlayingRow) {
         const typeData = getTrackTypeData(currentPlayingRow.dataset.ruta);
-        if (typeData && (typeData.identifier === 'comercial' || typeData.identifier === 'saytime')) { isMusic = false; }
+        if (typeData && (typeData.identifier === 'comercial' || typeData.id === 't_time' || typeData.identifier === 'saytime')) { isMusic = false; }
     }
 
     let absTime = elapsed;
@@ -9546,7 +9593,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
                 return;
             }
 
-            currentTrackConfig = getCrossfadeConfig(getTrackTypeData('dummy.saytime'), null);
+            currentTrackConfig = getCrossfadeConfig(getLocutionTypeData(), null);
             currentDuration = Math.max(0.25, await getAudioDuration(climateFilePath) || 5);
             trackStartTime = new Date();
             const climateTitle = `${getClimateLocutionLabel(type)} ${roundedClimateValue}${type === 'humidity' ? '%' : (window.currentWeather?.unitSym || '°C')}`;
@@ -9627,7 +9674,7 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
                 return; 
             }
 
-            currentTrackConfig = getCrossfadeConfig(getTrackTypeData('dummy.saytime'), null);
+            currentTrackConfig = getCrossfadeConfig(getLocutionTypeData(), null);
             setPlayerPlaybackMeta(activePlayer, {
                 row: tr,
                 filePath: null,
