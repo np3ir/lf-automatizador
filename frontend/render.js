@@ -78,6 +78,8 @@ const VU_IPC_INTERVAL_MS = 20;
 const VU_DIAGNOSTICS_IPC_INTERVAL_MS = 1000;
 const IDLE_METADATA_TEXT = 'Esperando...';
 const ICON_CLOCK_LABEL = '\u23f0 Locuci\u00f3n de hora';
+const ICON_TEMPERATURE_LABEL = '\u{1f321}\ufe0f Locuci\u00f3n de temperatura';
+const ICON_HUMIDITY_LABEL = '\u{1f4a7} Locuci\u00f3n de humedad';
 const ICON_STOP_LABEL = '\u23f9';
 const ICON_NOTE_LABEL = '\u{1f4dd}';
 const ICON_PLAYLIST_JUMP_LABEL = '\u23ed';
@@ -305,7 +307,7 @@ function clearPlayerPlaybackMeta(player) {
 
 let uiPrefs = loadConfig(uiPrefsPath, { controlsPos: 'bottom', temp: true, hum: true, leftPanel: true, ext: false, sysLog: true, showRemainingTime: false, cartwall: false, playlistColumnWidths: [92, 520, 96, 82, 82] });
 let fxPrefs = loadConfig(fxPrefsPath, { preamp: 0, pan: 0, mono: false, eq_bands: [0, 0, 0, 0, 0, 0, 0, 0], eq_on: false, comp_on: false, lim_on: false, order: ['eq', 'comp', 'limiter'], custom_presets: {}, active_preset: 'def_Plano (Reset)' });
-let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, { modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, timeFolder: '', duckingFade: 1.0, duckingVolume: 20, outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default', monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', encoderSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default', playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'rustAudio', rustPlaylistOwnerEnabled: true, chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_fadeout_stop: true, chk_mus_fadeout_next: true, chk_mus_mix: true, chk_mus_mix_db: true, chk_mus_mix_fadeout: false, num_mus_fadein: 0, num_mus_fadeout: 2, num_mus_fadeout_stop: 2, num_mus_fadeout_next: 0.6, num_mus_mix: 0.6, num_mus_mix_db: -14, eventsMasterActive: true, eventsManualOnly: false }));
+let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, { modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, timeFolder: '', weatherFolder: '', weatherTemperatureFolder: '', weatherHumidityFolder: '', duckingFade: 1.0, duckingVolume: 20, outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default', monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', encoderSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default', playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'rustAudio', rustPlaylistOwnerEnabled: true, chk_mus_fadein: false, chk_mus_fadeout: false, chk_mus_fadeout_stop: true, chk_mus_fadeout_next: true, chk_mus_mix: true, chk_mus_mix_db: true, chk_mus_mix_fadeout: false, num_mus_fadein: 0, num_mus_fadeout: 2, num_mus_fadeout_stop: 2, num_mus_fadeout_next: 0.6, num_mus_mix: 0.6, num_mus_mix_db: -14, eventsMasterActive: true, eventsManualOnly: false }));
 generalPrefs.modeRepeatTrack = false;
 saveConfig(generalPrefsPath, generalPrefs);
 let clockwheelPrefs = loadConfig(clockwheelPrefsPath, { pattern: '', targetMinutes: 60, sepArtist: 4, sepTitle: 8, sepFolder: 2, clearList: false });
@@ -318,6 +320,12 @@ if (generalPrefs.timeFolder) {
 }
 if (generalPrefs.weatherFolder) {
     generalPrefs.weatherFolder = adaptStoredPath(generalPrefs.weatherFolder, __projectRoot);
+}
+if (generalPrefs.weatherTemperatureFolder) {
+    generalPrefs.weatherTemperatureFolder = adaptStoredPath(generalPrefs.weatherTemperatureFolder, __projectRoot);
+}
+if (generalPrefs.weatherHumidityFolder) {
+    generalPrefs.weatherHumidityFolder = adaptStoredPath(generalPrefs.weatherHumidityFolder, __projectRoot);
 }
 
 if (generalPrefs.duckingFade >= 10) generalPrefs.duckingFade = 1.0;
@@ -713,6 +721,16 @@ function handleRustPlaylistModeChanged(message = {}) {
 
 function isTimeLocutionRow(row) {
     return !!row && ((row.dataset.type || '') === 'time' || row.dataset.ruta === 'time_locution');
+}
+
+function isClimateLocutionRow(row) {
+    const type = row?.dataset?.type || '';
+    const ruta = row?.dataset?.ruta || '';
+    return isClimateLocutionType(type) || ruta === 'temperature_locution' || ruta === 'humidity_locution';
+}
+
+function isSpecialLocutionRow(row) {
+    return isTimeLocutionRow(row) || isClimateLocutionRow(row);
 }
 
 function normalizeTimeLocutionRow(row) {
@@ -1535,7 +1553,7 @@ function consumeRustStandbyFor(row, filePath, bus) {
 }
 
 function preloadRustPlaylistStandby(row) {
-    if (!isRustPlaylistOwnerEnabled() || !row || isPlaylistCommandRow(row) || isTimeLocutionRow(row)) return;
+    if (!isRustPlaylistOwnerEnabled() || !row || isPlaylistCommandRow(row) || isSpecialLocutionRow(row)) return;
     const filePath = row.dataset.ruta || '';
     if (!filePath || !fs.existsSync(filePath)) return;
     const rowId = ensurePlaylistRowId(row);
@@ -3671,6 +3689,8 @@ ipcRenderer.on('remote-add-to-playlist', async (e, payload) => {
 ipcRenderer.on('menu-add-folder', async (e, folder) => { await handleDroppedItem(folder, null, 'bottom', playlistBody); });
 ipcRenderer.on('menu-add-random', async (e, folder) => { await addRandomFolderToPlaylist(folder, null, 'bottom', playlistBody); });
 ipcRenderer.on('menu-insert-time', () => { addTimeLocutionToPlaylist(); });
+ipcRenderer.on('menu-insert-temperature', () => { addClimateLocutionToPlaylist('temperature'); });
+ipcRenderer.on('menu-insert-humidity', () => { addClimateLocutionToPlaylist('humidity'); });
 ipcRenderer.on('menu-add-event-command', async () => {
     const eventObj = await requestPlaylistEventSelection();
     if (!eventObj) return;
@@ -5045,6 +5065,10 @@ function createPlaylistRow(ruta, nombre, duracionSegundos, type = 'normal', inse
         type = 'time';
         ruta = 'time_locution';
         nombre = ICON_CLOCK_LABEL;
+    } else if (isClimateLocutionType(type) || ruta === 'temperature_locution' || ruta === 'humidity_locution') {
+        type = ruta === 'humidity_locution' ? 'humidity' : (ruta === 'temperature_locution' ? 'temperature' : type);
+        ruta = `${type}_locution`;
+        nombre = nombre || getClimateLocutionLabel(type);
     }
     if (PLAYLIST_COMMAND_TYPES.has(type)) {
         duracionSegundos = 0;
@@ -5064,14 +5088,14 @@ function createPlaylistRow(ruta, nombre, duracionSegundos, type = 'normal', inse
     tr.dataset.type = type;
 
     const typeData = getTrackTypeData(ruta);
-    const rowColor = (type === 'time') ? '#2ecc71' : (type === 'random') ? '#f39c12' : (typeData ? typeData.color : '#e0e0e0');
+    const rowColor = (type === 'time') ? '#2ecc71' : (type === 'temperature') ? '#f1c40f' : (type === 'humidity') ? '#3498db' : (type === 'random') ? '#f39c12' : (typeData ? typeData.color : '#e0e0e0');
     tr.style.color = rowColor;
-    if (type === 'time' || type === 'random') tr.style.fontStyle = 'italic';
+    if (type === 'time' || type === 'random' || isClimateLocutionType(type)) tr.style.fontStyle = 'italic';
 
     let pureName = nombre;
     let ext = '';
     const match = String(nombre || '').match(/(.*)(\.[a-zA-Z0-9]{2,5})$/i);
-    if (match && type !== 'time' && type !== 'random' && !PLAYLIST_COMMAND_TYPES.has(type)) {
+    if (match && type !== 'time' && type !== 'random' && !isClimateLocutionType(type) && !PLAYLIST_COMMAND_TYPES.has(type)) {
         pureName = match[1];
         ext = match[2];
     }
@@ -7803,6 +7827,9 @@ ipcRenderer.on('settings-updated', () => {
     const previousRouteSignature = getAudioRouteSignature(generalPrefs);
     const previousEngineMode = generalPrefs.audioEngineMode || 'rustAudio';
     generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, generalPrefs));
+    if (generalPrefs.weatherTemperatureFolder) generalPrefs.weatherTemperatureFolder = adaptStoredPath(generalPrefs.weatherTemperatureFolder, __projectRoot);
+    if (generalPrefs.weatherHumidityFolder) generalPrefs.weatherHumidityFolder = adaptStoredPath(generalPrefs.weatherHumidityFolder, __projectRoot);
+    if (generalPrefs.weatherFolder) generalPrefs.weatherFolder = adaptStoredPath(generalPrefs.weatherFolder, __projectRoot);
     generalPrefs.modeRepeatTrack = false;
     const routeChanged = previousRouteSignature !== getAudioRouteSignature(generalPrefs);
     const engineChanged = previousEngineMode !== (generalPrefs.audioEngineMode || 'rustAudio');
@@ -8072,7 +8099,7 @@ function handleTimeUpdate(player) {
             nextRow = resolveNextOperationalRow(currentPlayingRow.nextElementSibling, generalPrefs.modeLoopPlaylist);
             if (!nextRow && generalPrefs.modeLoopPlaylist) nextRow = resolveNextOperationalRow(currentPlayingRow.closest('tbody').firstElementChild, false);
         }
-        if (nextRow && nextRow.dataset.type !== 'time' && nextRow.dataset.type !== 'random' && !isPlaylistCommandRow(nextRow)) {
+        if (nextRow && !isSpecialLocutionRow(nextRow) && nextRow.dataset.type !== 'random' && !isPlaylistCommandRow(nextRow)) {
             ensurePreanalysisForTrack(nextRow.dataset.ruta);
         }
     }
@@ -8317,7 +8344,158 @@ playerB.addEventListener('ended', () => handleEnded(playerB));
 const btnReloj = document.getElementById('btn-reloj');
 if (btnReloj) { btnReloj.addEventListener('click', playTimeLocution); btnReloj.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); hideAllMenus(); addTimeLocutionToPlaylist(); }); }
 
+const tempWidget = document.getElementById('temp-widget');
+if (tempWidget) {
+    tempWidget.style.cursor = 'pointer';
+    tempWidget.title = 'Clic Izquierdo: Lanzar Temperatura | Clic Derecho: Agregar a la Lista';
+    tempWidget.addEventListener('click', () => playClimateLocution('temperature'));
+    tempWidget.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        hideAllMenus();
+        addClimateLocutionToPlaylist('temperature');
+    });
+}
+
+const humWidget = document.getElementById('hum-widget');
+if (humWidget) {
+    humWidget.style.cursor = 'pointer';
+    humWidget.title = 'Clic Izquierdo: Lanzar Humedad | Clic Derecho: Agregar a la Lista';
+    humWidget.addEventListener('click', () => playClimateLocution('humidity'));
+    humWidget.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        hideAllMenus();
+        addClimateLocutionToPlaylist('humidity');
+    });
+}
+
 function addTimeLocutionToPlaylist() { let targetRow = document.querySelector('.selected-row'); createPlaylistRow('time_locution', ICON_CLOCK_LABEL, 5, 'time', targetRow, 'bottom', playlistBody); }
+
+function isClimateLocutionType(type) {
+    return type === 'temperature' || type === 'humidity';
+}
+
+function getClimateLocutionLabel(kind) {
+    return kind === 'humidity' ? ICON_HUMIDITY_LABEL : ICON_TEMPERATURE_LABEL;
+}
+
+function addClimateLocutionToPlaylist(kind) {
+    if (!isClimateLocutionType(kind)) return;
+    let targetRow = document.querySelector('.selected-row');
+    createPlaylistRow(`${kind}_locution`, getClimateLocutionLabel(kind), 5, kind, targetRow, 'bottom', playlistBody);
+}
+
+function getCurrentClimateValue(kind) {
+    if (kind === 'humidity') return Number(window.currentWeather?.hum);
+    return Number(window.currentWeather?.temp);
+}
+
+function getClimateLocutionFolder(kind) {
+    if (kind === 'humidity') return generalPrefs.weatherHumidityFolder || generalPrefs.weatherFolder || '';
+    return generalPrefs.weatherTemperatureFolder || generalPrefs.weatherFolder || '';
+}
+
+function folderHasClimateFiles(folder, kind) {
+    try {
+        if (!folder || !fs.existsSync(folder)) return false;
+        return fs.readdirSync(folder).some(file => {
+            const name = String(file || '').toUpperCase();
+            return kind === 'humidity'
+                ? name.startsWith('HUM')
+                : name.startsWith('TMP') || name.startsWith('TMPN');
+        });
+    } catch (err) {
+        return false;
+    }
+}
+
+function findClimateLocutionFile(folder, kind, value) {
+    try {
+        if (!folder || !fs.existsSync(folder)) return '';
+        const rounded = Math.round(Number(value));
+        if (!Number.isFinite(rounded)) return '';
+        const prefix = kind === 'humidity'
+            ? `HUM${String(Math.max(0, Math.min(100, rounded))).padStart(3, '0')}`
+            : (rounded < 0 ? `TMPN${String(Math.abs(rounded)).padStart(3, '0')}` : `TMP${String(rounded).padStart(3, '0')}`);
+        const match = fs.readdirSync(folder).find(file => String(file || '').toUpperCase().startsWith(prefix));
+        return match ? path.join(folder, match) : '';
+    } catch (err) {
+        return '';
+    }
+}
+
+function resolveClimateLocutionFolder(kind) {
+    const configured = getClimateLocutionFolder(kind);
+    const childName = kind === 'humidity' ? 'Humidity' : 'Temperature';
+    const candidates = [];
+    if (configured) {
+        candidates.push(configured);
+        candidates.push(path.join(configured, childName));
+        candidates.push(path.join(path.dirname(configured), childName));
+    }
+    const valid = candidates.find(candidate => folderHasClimateFiles(candidate, kind));
+    return valid || configured || '';
+}
+
+function resolveClimateLocutionFile(kind, value) {
+    const folder = resolveClimateLocutionFolder(kind);
+    return findClimateLocutionFile(folder, kind, value);
+}
+
+async function ensureClimateWeatherValue(kind) {
+    let value = getCurrentClimateValue(kind);
+    if (Number.isFinite(value)) return value;
+    if (typeof fetchWeatherBackground === 'function') {
+        await fetchWeatherBackground(true);
+        value = getCurrentClimateValue(kind);
+    }
+    return Number.isFinite(value) ? value : null;
+}
+
+async function playClimateLocution(kind) {
+    if (!isClimateLocutionType(kind) || isJinglePlaying) return;
+    const folder = resolveClimateLocutionFolder(kind);
+    if (!folder || !folderHasClimateFiles(folder, kind)) {
+        logSystem('[CLIMA] Carpeta de locucion no valida.');
+        return;
+    }
+    const value = await ensureClimateWeatherValue(kind);
+    if (!Number.isFinite(value)) {
+        logSystem('[CLIMA] No hay dato actual para locutar.');
+        return;
+    }
+    const filePath = findClimateLocutionFile(folder, kind, value);
+    if (!filePath) {
+        logSystem(`[CLIMA] No se encontro audio para ${kind === 'humidity' ? 'humedad' : 'temperatura'} ${Math.round(value)}.`);
+        return;
+    }
+
+    const playerId = `climate-${kind}`;
+    isJinglePlaying = true;
+    const result = await commandRustControlPlane('load', {
+        player: playerId,
+        path: filePath,
+        bus: 'jingle',
+        gain: 1,
+        autoplay: true
+    });
+    if (!result?.ok) {
+        isJinglePlaying = false;
+        logSystem(`[CLIMA] No se pudo reproducir locucion: ${result?.error || 'sin detalle'}`);
+        return;
+    }
+
+    const startedMsg = result.result?.message || {};
+    registerRustOverlayRuntime({
+        playerId,
+        path: filePath,
+        type: 'climate-locution',
+        affectsProgram: true,
+        onEnded: () => { isJinglePlaying = false; }
+    });
+    ipcRenderer.send('update-metadata', `${getClimateLocutionLabel(kind)} ${Math.round(value)}`);
+}
 
 function resolveTimeLocutionFiles(folder, now = new Date()) {
     if (!folder || !fs.existsSync(folder)) return [];
@@ -8631,6 +8809,9 @@ setTimeout(() => {
 // Also listen for settings updates to refetch immediately if city changes
 ipcRenderer.on('settings-updated', () => {
     generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, generalPrefs));
+    if (generalPrefs.weatherTemperatureFolder) generalPrefs.weatherTemperatureFolder = adaptStoredPath(generalPrefs.weatherTemperatureFolder, __projectRoot);
+    if (generalPrefs.weatherHumidityFolder) generalPrefs.weatherHumidityFolder = adaptStoredPath(generalPrefs.weatherHumidityFolder, __projectRoot);
+    if (generalPrefs.weatherFolder) generalPrefs.weatherFolder = adaptStoredPath(generalPrefs.weatherFolder, __projectRoot);
     window.currentWeather.lastUpdate = 0;
     setTimeout(() => fetchWeatherBackground(true), 1000);
 });
@@ -9095,6 +9276,119 @@ async function playRow(tr, isAutoMix = false, forcedFadeOutSeconds = 0, options 
         const savedResumeStart = parseFloat(tr.dataset.resumeStart || '');
         const resumeStart = type === 'normal' && Number.isFinite(savedResumeStart) && savedResumeStart > 0.25 ? savedResumeStart : null;
         delete tr.dataset.resumeStart;
+
+        if (isClimateLocutionType(type)) {
+            const folder = resolveClimateLocutionFolder(type);
+            if (!folder || !folderHasClimateFiles(folder, type)) {
+                logSystem(`[SKIP] La carpeta de clima no existe. Saltando...`);
+                setTimeout(() => playNext(false), 500);
+                return;
+            }
+            const climateValue = await ensureClimateWeatherValue(type);
+            if (!Number.isFinite(climateValue)) {
+                logSystem(`[SKIP] No hay dato actual de ${type === 'humidity' ? 'humedad' : 'temperatura'}. Saltando...`);
+                setTimeout(() => playNext(false), 500);
+                return;
+            }
+            const roundedClimateValue = Math.round(climateValue);
+            const climateFilePath = findClimateLocutionFile(folder, type, roundedClimateValue);
+            if (!climateFilePath) {
+                logSystem(`[SKIP] No se encontro audio para ${type === 'humidity' ? 'humedad' : 'temperatura'} ${roundedClimateValue}. Saltando...`);
+                setTimeout(() => playNext(false), 500);
+                return;
+            }
+
+            currentTrackConfig = getCrossfadeConfig(getTrackTypeData('dummy.saytime'), null);
+            currentDuration = Math.max(0.25, await getAudioDuration(climateFilePath) || 5);
+            trackStartTime = new Date();
+            const climateTitle = `${getClimateLocutionLabel(type)} ${roundedClimateValue}${type === 'humidity' ? '%' : (window.currentWeather?.unitSym || '°C')}`;
+            document.getElementById('txt-cancion').innerText = climateTitle;
+            document.getElementById('txt-cancion').style.color = '#ffffff';
+            document.getElementById('txt-acaba').innerText = '';
+            drawWaveform(null);
+
+            const climatePlaylistPlayerId = getPlaylistPlayerId(activePlayer);
+            const climatePlaylistBus = getRustPlaylistPrimaryBus(tr);
+            try { activePlayer.pause(); activePlayer.currentTime = 0; activePlayer.removeAttribute('src'); activePlayer.load(); } catch (err) {}
+
+            const result = await commandRustControlPlane('load', {
+                player: climatePlaylistPlayerId,
+                bus: climatePlaylistBus,
+                path: climateFilePath,
+                gain: dbToLinear(currentTrackConfig.ampDb),
+                autoplay: true
+            });
+            if (currentSessionId !== playRowSessionId) return;
+            if (!result?.ok) {
+                logSystem(`[SKIP] Rust no pudo lanzar la locucion de clima: ${result?.error || 'sin detalle'}. Saltando...`);
+                setTimeout(() => playNext(false), 500);
+                return;
+            }
+
+            if (fadingPlayer && !isPlayerClockPaused(fadingPlayer)) {
+                const currentVol = fadingGain.gain.value;
+                fadingGain.gain.cancelScheduledValues(audioCtx.currentTime);
+                fadingGain.gain.setValueAtTime(currentVol, audioCtx.currentTime);
+                const fadePlan = getFadeOutPlanForTransition(fadingPlayer, outgoingTrackConfig, isAutoMix, forcedFadeOutSeconds);
+                if (fadePlan.seconds > 0) {
+                    fadingGain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime + fadePlan.seconds);
+                }
+                if (fadePlan.scheduleStop) schedulePlayerStop(fadingPlayer, (fadePlan.stopDelaySeconds || fadePlan.seconds) * 1000);
+                if (isRustPlaylistOwnerEnabled()) {
+                    const previousPlayerId = getPlaylistPlayerId(fadingPlayer);
+                    const previousState = previousPlayerId ? (rustPlaylistMirrorState.get(previousPlayerId) || {}) : {};
+                    const previousGain = Number.isFinite(Number(previousState.gain)) ? Number(previousState.gain) : 1;
+                    if (previousPlayerId && previousPlayerId !== climatePlaylistPlayerId) {
+                        cancelRustPlaylistGainRamp(previousPlayerId);
+                        if (fadePlan.seconds > 0) {
+                            const stopWithRamp = fadePlan.scheduleStop
+                                && (fadePlan.stopDelaySeconds || fadePlan.seconds) <= fadePlan.seconds + 0.05;
+                            scheduleRustPlaylistGainRamp(previousPlayerId, previousGain, 0.0001, fadePlan.seconds, { stopAfter: stopWithRamp });
+                            if (fadePlan.scheduleStop && !stopWithRamp) {
+                                scheduleRustPlaylistStop(previousPlayerId, fadePlan.stopDelaySeconds || fadePlan.seconds);
+                            }
+                        } else {
+                            commandRustPlaylist('setGain', { player: previousPlayerId, gain: 0 }).catch(() => { });
+                            commandRustPlaylist('stop', { player: previousPlayerId }).catch(() => { });
+                            rustPlaylistMirrorState.delete(previousPlayerId);
+                        }
+                    }
+                }
+            }
+
+            const durationMs = Math.round(currentDuration * 1000);
+            const endTime = new Date(trackStartTime.getTime() + currentDuration * 1000);
+            document.getElementById('txt-acaba').innerText = endTime.toLocaleTimeString('es-PE', { hour12: false });
+
+            const climatePlaybackEnd = currentDuration;
+            setPlayerPlaybackMeta(activePlayer, {
+                row: tr,
+                filePath: climateFilePath,
+                mixAbsolute: null,
+                playbackEndAbsolute: climatePlaybackEnd,
+                naturalEndAbsolute: climatePlaybackEnd,
+                startOffset: 0,
+                rustPlayerId: climatePlaylistPlayerId
+            });
+            startRustVirtualPlayback(activePlayer, climateFilePath, 0);
+            if (climatePlaylistPlayerId) {
+                const targetGain = dbToLinear(currentTrackConfig.ampDb);
+                setRustPlaylistMirrorGain(climatePlaylistPlayerId, targetGain, {
+                    path: climateFilePath,
+                    owner: true,
+                    status: 'playing',
+                    seekBucket: 0
+                });
+            }
+            markRustPlaylistOwnerOk({ activate: true });
+            isTrackReady = true;
+            refreshAirIncidentStatus();
+            publishRustTransport({ force: true, syncPosition: false });
+
+            calcularHorasPlaylist(); updateNextTrackVisuals();
+            logSystem(`${ICON_AIR_PREFIX} ${climateTitle} (Rust, ${(durationMs/1000).toFixed(1)}s, bus=${climatePlaylistBus})`);
+            return;
+        }
 
         if (type === 'time') {
             // Locución horaria delegada 100% al motor Rust. Electron solo:
@@ -10264,7 +10558,7 @@ function ensureCartwallStateShape(state) {
             paleta.botones.forEach((b, i) => {
                 b.id = i + 1;
                 b.label = b.label || String(i + 1);
-                b.type = ['audio', 'time'].includes(b.type) ? b.type : 'audio';
+                b.type = ['audio', 'time', 'temperature', 'humidity'].includes(b.type) ? b.type : 'audio';
                 b.folder = b.folder || '';
                 b.text = b.text || '#FFFFFF';
                 b.vol = Number.isFinite(Number(b.vol)) ? Number(b.vol) : 1;
@@ -10321,8 +10615,12 @@ function isCartwallTimeButton(btnInfo) {
     return btnInfo?.type === 'time';
 }
 
+function isCartwallClimateButton(btnInfo) {
+    return isClimateLocutionType(btnInfo?.type);
+}
+
 function resetCartwallButtonModeOptions(btnInfo) {
-    if (!isCartwallTimeButton(btnInfo)) return;
+    if (!isCartwallTimeButton(btnInfo) && !isCartwallClimateButton(btnInfo)) return;
     btnInfo.loop = false;
     btnInfo.stopOther = false;
     btnInfo.overlap = false;
@@ -10636,15 +10934,23 @@ function formatCwTime(seconds) {
 }
 
 function getCartwallButtonReadyText(btnInfo) {
-    return (btnInfo?.file || (isCartwallTimeButton(btnInfo) && btnInfo.folder)) ? 'LISTO' : '';
+    return isCartwallButtonPlayable(btnInfo) ? 'LISTO' : '';
 }
 
 function refreshCartwallModeMenu(btnInfo) {
-    const disabled = isCartwallTimeButton(btnInfo);
+    const disabled = isCartwallTimeButton(btnInfo) || isCartwallClimateButton(btnInfo);
     ['menu-bucle', 'menu-overlap', 'menu-restart', 'menu-detener'].forEach(id => {
         const item = document.getElementById(id);
         if (item) item.classList.toggle('context-disabled', disabled);
     });
+}
+
+function isCartwallButtonPlayable(btnInfo) {
+    if (!btnInfo) return false;
+    if (btnInfo.file) return true;
+    if (isCartwallTimeButton(btnInfo)) return !!btnInfo.folder;
+    if (isCartwallClimateButton(btnInfo)) return !!(btnInfo.folder || getClimateLocutionFolder(btnInfo.type));
+    return false;
 }
 
 function renderCartwallGrid() {
@@ -10658,7 +10964,7 @@ function renderCartwallGrid() {
 
     paleta.botones.forEach(btnInfo => {
         Object.defineProperty(btnInfo, '_cwTabIndex', { value: cwActiveTabIndex, configurable: true, writable: true });
-        btnInfo.type = ['audio', 'time'].includes(btnInfo.type) ? btnInfo.type : 'audio';
+        btnInfo.type = ['audio', 'time', 'temperature', 'humidity'].includes(btnInfo.type) ? btnInfo.type : 'audio';
         btnInfo.folder = btnInfo.folder || '';
         resetCartwallButtonModeOptions(btnInfo);
         const runtimeKey = getCwRuntimeKey(btnInfo);
@@ -10670,7 +10976,9 @@ function renderCartwallGrid() {
 
         btn.innerHTML = `<span class="cw-index">${btnInfo.id}</span><span class="cw-name">${btnInfo.name || ''}</span><span class="cw-timer" id="cw-timer-${btnInfo.id}">${getCartwallButtonReadyText(btnInfo)}</span><div class="cw-progress-container"><div class="cw-progress-bar" id="cw-progress-${btnInfo.id}"></div></div>`;
 
-        btn.onclick = () => handleCartwallPlay(btnInfo, btn);
+        btn.onclick = () => {
+            if (isCartwallButtonPlayable(btnInfo)) handleCartwallPlay(btnInfo, btn);
+        };
         btn.draggable = true;
         btn.addEventListener('dragstart', (e) => {
             if (!e.ctrlKey || !getCartwallButtonReadyText(btnInfo)) {
@@ -10742,7 +11050,7 @@ if (cwGrid) {
         if (!cwIsValidAudioPath(p)) return;
         const paleta = getActiveCwPalette();
         if (!paleta) return;
-        const firstEmpty = paleta.botones.find(b => !b.file);
+        const firstEmpty = paleta.botones.find(b => !isCartwallButtonPlayable(b));
         if (firstEmpty) await cwAssignPathToButton(firstEmpty, p);
         else if (botonSeleccionado) await cwAssignPathToButton(botonSeleccionado, p);
     });
@@ -10753,6 +11061,14 @@ if (cwGrid) {
 function handleCartwallPlay(btnInfo, btnDOM) {
     const runtimeKey = getCwRuntimeKey(btnInfo);
     const { tabIndex, id } = parseCwRuntimeKey(runtimeKey);
+    if (isCartwallClimateButton(btnInfo)) {
+        if (cartwallAudioInstances[runtimeKey] && cartwallAudioInstances[runtimeKey].length > 0) {
+            stopCartwallAudio(runtimeKey);
+            return;
+        }
+        handleCartwallClimatePlay(btnInfo, btnDOM, runtimeKey, tabIndex, id);
+        return;
+    }
     if (isCartwallTimeButton(btnInfo)) {
         if (cartwallAudioInstances[runtimeKey] && cartwallAudioInstances[runtimeKey].length > 0) {
             stopCartwallAudio(runtimeKey);
@@ -10812,7 +11128,7 @@ function shouldRustOwnCartwallButton(btnInfo = {}) {
     // el boton de hora (tiene su propio path) o un boton sin archivo.
     if (!shouldMirrorRustControlPlane()) return false;
     if (!btnInfo.file) return false;
-    if (isCartwallTimeButton(btnInfo)) return false;
+    if (isCartwallTimeButton(btnInfo) || isCartwallClimateButton(btnInfo)) return false;
     return true;
 }
 
@@ -10922,6 +11238,61 @@ async function playCartwallTimeButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabI
     if (result?.ok) return;
     finishCartwallRuntimeItem(runtimeItem);
     logSystem(`[CARTWALL] Rust no pudo reproducir locucion de hora: ${result?.error || 'sin detalle'}`);
+}
+
+async function handleCartwallClimatePlay(btnInfo, btnDOM, runtimeKey, tabIndex, id) {
+    const configuredFolder = btnInfo.folder || getClimateLocutionFolder(btnInfo.type);
+    const folder = folderHasClimateFiles(configuredFolder, btnInfo.type)
+        ? configuredFolder
+        : resolveClimateLocutionFolder(btnInfo.type);
+    if (!folder || !folderHasClimateFiles(folder, btnInfo.type)) {
+        logSystem('[CARTWALL] Locucion de clima sin carpeta valida.');
+        return;
+    }
+    const value = await ensureClimateWeatherValue(btnInfo.type);
+    if (!Number.isFinite(value)) {
+        logSystem('[CARTWALL] No hay dato actual de clima para locutar.');
+        return;
+    }
+    const roundedValue = Math.round(value);
+    const filePath = findClimateLocutionFile(folder, btnInfo.type, roundedValue);
+    if (!filePath) {
+        logSystem(`[CARTWALL] No se encontro audio de clima para ${roundedValue}.`);
+        return;
+    }
+    playCartwallClimateButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabIndex, id, filePath });
+}
+
+async function playCartwallClimateButtonViaRust({ btnInfo, btnDOM, runtimeKey, tabIndex, id, filePath }) {
+    const affectsProgram = generalPrefs.cartwallOutputMode === 'master';
+    const busAndOutput = getRustCartwallBusAndOutput();
+    const runtimeItem = {
+        audio: null,
+        source: null,
+        rustOnly: true,
+        rustPlayerId: buildRustCartwallPlayerId(runtimeKey),
+        affectsProgram,
+        tabIndex,
+        id,
+        key: runtimeKey,
+        btnInfo,
+        stopped: false,
+        sourcePath: filePath,
+        cartwallBus: busAndOutput.bus,
+        cartwallOutputId: busAndOutput.outputId
+    };
+    cartwallAudioInstances[runtimeKey] = [runtimeItem];
+    if (affectsProgram) {
+        activePisadores++;
+        if (activePisadores === 1) applyDucking();
+    }
+    if (btnDOM && tabIndex === cwActiveTabIndex) btnDOM.classList.add('cw-playing');
+    ipcRenderer.send('cartwall-play-state', { id, tabIndex, state: 'playing' });
+    refreshCwPlayingTabs();
+    const result = await playRustCartwallRuntimeItem(runtimeItem);
+    if (result?.ok) return;
+    finishCartwallRuntimeItem(runtimeItem);
+    logSystem(`[CARTWALL] Rust no pudo reproducir locucion de clima: ${result?.error || 'sin detalle'}`);
 }
 
 function finishCartwallRuntimeItem(runtimeItem) {
@@ -11065,7 +11436,7 @@ function stopCartwallTabAudio(tabIndex) {
 }
 
 function hasConfiguredCartwallEffects(paleta) {
-    return !!paleta && Array.isArray(paleta.botones) && paleta.botones.some(btn => !!btn.file);
+    return !!paleta && Array.isArray(paleta.botones) && paleta.botones.some(isCartwallButtonPlayable);
 }
 
 async function confirmDeleteCartwallTab(paleta) {
@@ -11097,7 +11468,7 @@ async function moveCartwallButton(fromTabIndex, fromId, toTabIndex, toId, { save
     if (!fromPalette || !toPalette || (fromTabIndex === toTabIndex && fromId === toId)) return false;
     const source = fromPalette.botones.find(btn => btn.id === fromId);
     const target = toPalette.botones.find(btn => btn.id === toId);
-    if (!source || !target || !source.file) return false;
+    if (!source || !target || !isCartwallButtonPlayable(source)) return false;
     if (moveRuntime) moveCartwallRuntime(fromTabIndex, fromId, toTabIndex, toId);
     else if (cartwallAudioInstances[`${toTabIndex}:${toId}`]?.length) stopCartwallAudio(`${toTabIndex}:${toId}`);
     const moved = { ...source, id: target.id, label: target.label || String(target.id) };
@@ -11108,9 +11479,9 @@ async function moveCartwallButton(fromTabIndex, fromId, toTabIndex, toId, { save
     return true;
 }
 document.getElementById('menu-editar').addEventListener('click', () => {
-    botonSeleccionado.type = ['audio', 'time'].includes(botonSeleccionado.type) ? botonSeleccionado.type : 'audio';
+    botonSeleccionado.type = ['audio', 'time', 'temperature', 'humidity'].includes(botonSeleccionado.type) ? botonSeleccionado.type : 'audio';
     document.getElementById('cw-edit-type').value = botonSeleccionado.type;
-    document.getElementById('cw-edit-filepath').value = botonSeleccionado.type === 'time' ? (botonSeleccionado.folder || '') : (botonSeleccionado.file || '');
+    document.getElementById('cw-edit-filepath').value = (botonSeleccionado.type === 'time' || isCartwallClimateButton(botonSeleccionado)) ? (botonSeleccionado.folder || '') : (botonSeleccionado.file || '');
     document.getElementById('cw-edit-name').value = botonSeleccionado.name || '';
     document.getElementById('cw-edit-volume').value = botonSeleccionado.vol || 1;
     document.getElementById('cw-edit-bg-color').value = botonSeleccionado.bg || '#444444';
@@ -11127,10 +11498,10 @@ document.getElementById('menu-limpiar').addEventListener('click', () => {
     ipcRenderer.invoke('save-cartwall-profiles', cartwallState); renderCartwallGrid(); hideAllMenus();
 });
 
-document.getElementById('menu-bucle').addEventListener('click', () => { if (isCartwallTimeButton(botonSeleccionado)) return; botonSeleccionado.loop = !botonSeleccionado.loop; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllMenus(); });
-document.getElementById('menu-detener').addEventListener('click', () => { if (isCartwallTimeButton(botonSeleccionado)) return; botonSeleccionado.stopOther = !botonSeleccionado.stopOther; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllMenus(); });
-document.getElementById('menu-overlap').addEventListener('click', () => { if (isCartwallTimeButton(botonSeleccionado)) return; botonSeleccionado.overlap = !botonSeleccionado.overlap; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllMenus(); });
-document.getElementById('menu-restart').addEventListener('click', () => { if (isCartwallTimeButton(botonSeleccionado)) return; botonSeleccionado.restart = !botonSeleccionado.restart; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllMenus(); });
+document.getElementById('menu-bucle').addEventListener('click', () => { if (isCartwallTimeButton(botonSeleccionado) || isCartwallClimateButton(botonSeleccionado)) return; botonSeleccionado.loop = !botonSeleccionado.loop; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllMenus(); });
+document.getElementById('menu-detener').addEventListener('click', () => { if (isCartwallTimeButton(botonSeleccionado) || isCartwallClimateButton(botonSeleccionado)) return; botonSeleccionado.stopOther = !botonSeleccionado.stopOther; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllMenus(); });
+document.getElementById('menu-overlap').addEventListener('click', () => { if (isCartwallTimeButton(botonSeleccionado) || isCartwallClimateButton(botonSeleccionado)) return; botonSeleccionado.overlap = !botonSeleccionado.overlap; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllMenus(); });
+document.getElementById('menu-restart').addEventListener('click', () => { if (isCartwallTimeButton(botonSeleccionado) || isCartwallClimateButton(botonSeleccionado)) return; botonSeleccionado.restart = !botonSeleccionado.restart; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllMenus(); });
 
 document.getElementById('menu-previa').addEventListener('click', () => {
     if (botonSeleccionado.file) { ipcRenderer.send('open-preview', botonSeleccionado.file); }
@@ -11177,34 +11548,36 @@ cwEditModal.addEventListener('keydown', (event) => handleCartwallModalKeydown(ev
 
 document.getElementById('btn-select-file').addEventListener('click', async () => {
     const selectedType = document.getElementById('cw-edit-type')?.value || 'audio';
-    const ruta = selectedType === 'time'
+    const ruta = (selectedType === 'time' || isClimateLocutionType(selectedType))
         ? await ipcRenderer.invoke('dialog:selectFolder')
         : await ipcRenderer.invoke('dialog:openFile');
     if (ruta) {
         document.getElementById('cw-edit-filepath').value = ruta;
         const nombre = path.basename(ruta);
-        document.getElementById('cw-edit-name').value = selectedType === 'time' ? 'Locucion de hora' : (nombre.substring(0, nombre.lastIndexOf('.')) || nombre).toUpperCase();
+        document.getElementById('cw-edit-name').value = selectedType === 'time' ? 'Locucion de hora' : (isClimateLocutionType(selectedType) ? getClimateLocutionLabel(selectedType) : (nombre.substring(0, nombre.lastIndexOf('.')) || nombre).toUpperCase());
     }
 });
 
 document.getElementById('cw-edit-type')?.addEventListener('change', () => {
     const selectedType = document.getElementById('cw-edit-type').value;
     document.getElementById('cw-edit-filepath').value = selectedType === botonSeleccionado?.type
-        ? (selectedType === 'time' ? (botonSeleccionado.folder || '') : (botonSeleccionado.file || ''))
+        ? ((selectedType === 'time' || isClimateLocutionType(selectedType)) ? (botonSeleccionado.folder || '') : (botonSeleccionado.file || ''))
         : '';
     if (selectedType === 'time') document.getElementById('cw-edit-name').value = 'Locucion de hora';
+    if (isClimateLocutionType(selectedType)) document.getElementById('cw-edit-name').value = getClimateLocutionLabel(selectedType);
 });
 
 document.getElementById('btn-save-cw-edit').addEventListener('click', async () => {
     const selectedType = document.getElementById('cw-edit-type')?.value || 'audio';
     const selectedPath = document.getElementById('cw-edit-filepath').value;
-    const previousPath = selectedType === 'time' ? botonSeleccionado.folder : botonSeleccionado.file;
+    const folderBacked = selectedType === 'time' || isClimateLocutionType(selectedType);
+    const previousPath = folderBacked ? botonSeleccionado.folder : botonSeleccionado.file;
     if (botonSeleccionado.type !== selectedType || previousPath !== selectedPath) {
         stopCartwallAudio(botonSeleccionado);
     }
     botonSeleccionado.type = selectedType;
-    botonSeleccionado.file = selectedType === 'time' ? '' : selectedPath;
-    botonSeleccionado.folder = selectedType === 'time' ? selectedPath : '';
+    botonSeleccionado.file = folderBacked ? '' : selectedPath;
+    botonSeleccionado.folder = folderBacked ? selectedPath : '';
     botonSeleccionado.name = document.getElementById('cw-edit-name').value;
     botonSeleccionado.vol = parseFloat(document.getElementById('cw-edit-volume').value);
     botonSeleccionado.bg = document.getElementById('cw-edit-bg-color').value;

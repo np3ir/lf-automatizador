@@ -134,7 +134,7 @@ async function assignPathToButton(btnInfo, filePath) {
 
 function normalizeCwButtonShape(btn) {
     if (!btn) return;
-    btn.type = ['audio', 'time'].includes(btn.type) ? btn.type : 'audio';
+    btn.type = ['audio', 'time', 'temperature', 'humidity'].includes(btn.type) ? btn.type : 'audio';
     btn.folder = btn.folder || '';
 }
 
@@ -142,8 +142,16 @@ function isCartwallTimeButton(btnInfo) {
     return btnInfo?.type === 'time';
 }
 
+function isCartwallClimateButton(btnInfo) {
+    return btnInfo?.type === 'temperature' || btnInfo?.type === 'humidity';
+}
+
+function getClimateLocutionLabel(kind) {
+    return kind === 'humidity' ? 'Humedad' : 'Temperatura';
+}
+
 function resetCartwallButtonModeOptions(btnInfo) {
-    if (!isCartwallTimeButton(btnInfo)) return;
+    if (!isCartwallTimeButton(btnInfo) && !isCartwallClimateButton(btnInfo)) return;
     btnInfo.loop = false;
     btnInfo.stopOther = false;
     btnInfo.overlap = false;
@@ -416,19 +424,27 @@ function handleCartwallModalKeydown(event, acceptFn, cancelFn) {
 }
 
 function getCartwallButtonReadyText(btnInfo) {
-    return (btnInfo?.file || (isCartwallTimeButton(btnInfo) && btnInfo.folder)) ? 'LISTO' : '';
+    return isCartwallButtonPlayable(btnInfo) ? 'LISTO' : '';
 }
 
 function refreshCartwallModeMenu(btnInfo) {
-    const disabled = isCartwallTimeButton(btnInfo);
+    const disabled = isCartwallTimeButton(btnInfo) || isCartwallClimateButton(btnInfo);
     ['menu-bucle', 'menu-overlap', 'menu-restart', 'menu-detener'].forEach(id => {
         const item = document.getElementById(id);
         if (item) item.classList.toggle('context-disabled', disabled);
     });
 }
 
+function isCartwallButtonPlayable(btnInfo) {
+    if (!btnInfo) return false;
+    if (btnInfo.file) return true;
+    if (isCartwallTimeButton(btnInfo)) return !!btnInfo.folder;
+    if (isCartwallClimateButton(btnInfo)) return true;
+    return false;
+}
+
 function hasConfiguredCartwallEffects(paleta) {
-    return !!paleta && Array.isArray(paleta.botones) && paleta.botones.some(btn => !!btn.file);
+    return !!paleta && Array.isArray(paleta.botones) && paleta.botones.some(isCartwallButtonPlayable);
 }
 
 async function confirmDeleteCartwallTab(paleta) {
@@ -452,7 +468,7 @@ async function moveCartwallButton(fromTabIndex, fromId, toTabIndex, toId) {
     if (!fromPalette || !toPalette || (fromTabIndex === toTabIndex && fromId === toId)) return false;
     const source = fromPalette.botones.find(btn => btn.id === fromId);
     const target = toPalette.botones.find(btn => btn.id === toId);
-    if (!source || !target || !source.file) return false;
+    if (!source || !target || !isCartwallButtonPlayable(source)) return false;
     const moved = { ...source, id: target.id, label: target.label || String(target.id) };
     Object.assign(target, moved);
     Object.assign(source, createEmptyCwButtonForSlot(source.id));
@@ -501,7 +517,7 @@ function renderCartwallGrid() {
         btn.innerHTML = `<span class="cw-index">${btnInfo.id}</span><span class="cw-name">${btnInfo.name || ''}</span><span class="cw-timer" id="cw-timer-${btnInfo.id}">${getCartwallButtonReadyText(btnInfo)}</span><div class="cw-progress-container"><div class="cw-progress-bar" id="cw-progress-${btnInfo.id}"></div></div>`;
         
         btn.onclick = () => {
-            if (btnInfo.file || (isCartwallTimeButton(btnInfo) && btnInfo.folder)) {
+            if (isCartwallButtonPlayable(btnInfo)) {
                 ipcRenderer.send('remote-cw-play', { ...btnInfo, _cwTabIndex: cwActiveTabIndex });
             }
         };
@@ -573,7 +589,7 @@ if (cwGrid) {
         if (!isValidAudioPath(p)) return;
         const paleta = getActiveCwPalette();
         if (!paleta) return;
-        const firstEmpty = paleta.botones.find(b => !b.file);
+        const firstEmpty = paleta.botones.find(b => !isCartwallButtonPlayable(b));
         if (firstEmpty) await assignPathToButton(firstEmpty, p);
         else if (botonSeleccionado) await assignPathToButton(botonSeleccionado, p);
     });
@@ -590,7 +606,7 @@ document.addEventListener('click', (e) => {
 document.getElementById('menu-editar').onclick = () => {
     normalizeCwButtonShape(botonSeleccionado);
     document.getElementById('cw-edit-type').value = botonSeleccionado.type;
-    document.getElementById('cw-edit-filepath').value = botonSeleccionado.type === 'time' ? (botonSeleccionado.folder || '') : (botonSeleccionado.file || ''); 
+    document.getElementById('cw-edit-filepath').value = (botonSeleccionado.type === 'time' || isCartwallClimateButton(botonSeleccionado)) ? (botonSeleccionado.folder || '') : (botonSeleccionado.file || '');
     document.getElementById('cw-edit-name').value = botonSeleccionado.name || ''; 
     document.getElementById('cw-edit-volume').value = botonSeleccionado.vol || 1; 
     document.getElementById('cw-edit-bg-color').value = botonSeleccionado.bg || '#444444'; 
@@ -607,10 +623,10 @@ document.getElementById('menu-limpiar').onclick = () => {
     ipcRenderer.invoke('save-cartwall-profiles', cartwallState); renderCartwallGrid(); hideAllFloatingMenus(); 
 };
 
-document.getElementById('menu-bucle').onclick = () => { if (isCartwallTimeButton(botonSeleccionado)) return; botonSeleccionado.loop = !botonSeleccionado.loop; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllFloatingMenus(); };
-document.getElementById('menu-detener').onclick = () => { if (isCartwallTimeButton(botonSeleccionado)) return; botonSeleccionado.stopOther = !botonSeleccionado.stopOther; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllFloatingMenus(); };
-document.getElementById('menu-overlap').onclick = () => { if (isCartwallTimeButton(botonSeleccionado)) return; botonSeleccionado.overlap = !botonSeleccionado.overlap; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllFloatingMenus(); };
-document.getElementById('menu-restart').onclick = () => { if (isCartwallTimeButton(botonSeleccionado)) return; botonSeleccionado.restart = !botonSeleccionado.restart; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllFloatingMenus(); };
+document.getElementById('menu-bucle').onclick = () => { if (isCartwallTimeButton(botonSeleccionado) || isCartwallClimateButton(botonSeleccionado)) return; botonSeleccionado.loop = !botonSeleccionado.loop; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllFloatingMenus(); };
+document.getElementById('menu-detener').onclick = () => { if (isCartwallTimeButton(botonSeleccionado) || isCartwallClimateButton(botonSeleccionado)) return; botonSeleccionado.stopOther = !botonSeleccionado.stopOther; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllFloatingMenus(); };
+document.getElementById('menu-overlap').onclick = () => { if (isCartwallTimeButton(botonSeleccionado) || isCartwallClimateButton(botonSeleccionado)) return; botonSeleccionado.overlap = !botonSeleccionado.overlap; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllFloatingMenus(); };
+document.getElementById('menu-restart').onclick = () => { if (isCartwallTimeButton(botonSeleccionado) || isCartwallClimateButton(botonSeleccionado)) return; botonSeleccionado.restart = !botonSeleccionado.restart; ipcRenderer.invoke('save-cartwall-profiles', cartwallState); hideAllFloatingMenus(); };
 
 document.getElementById('menu-previa').onclick = () => { 
     if (botonSeleccionado.file) { ipcRenderer.send('open-preview', botonSeleccionado.file); }
@@ -658,34 +674,36 @@ cwEditModal.addEventListener('keydown', (event) => handleCartwallModalKeydown(ev
 
 document.getElementById('btn-select-file').onclick = async () => {
     const selectedType = document.getElementById('cw-edit-type')?.value || 'audio';
-    const ruta = selectedType === 'time'
+    const ruta = (selectedType === 'time' || selectedType === 'temperature' || selectedType === 'humidity')
         ? await ipcRenderer.invoke('dialog:selectFolder')
         : await ipcRenderer.invoke('dialog:openFile');
     if (ruta) { 
         document.getElementById('cw-edit-filepath').value = ruta; 
         const nombre = path.basename(ruta); 
-        document.getElementById('cw-edit-name').value = selectedType === 'time' ? 'Locución de hora' : (nombre.substring(0, nombre.lastIndexOf('.')) || nombre).toUpperCase(); 
+        document.getElementById('cw-edit-name').value = selectedType === 'time' ? 'Locución de hora' : ((selectedType === 'temperature' || selectedType === 'humidity') ? getClimateLocutionLabel(selectedType) : (nombre.substring(0, nombre.lastIndexOf('.')) || nombre).toUpperCase());
     }
 };
 
 document.getElementById('cw-edit-type')?.addEventListener('change', () => {
     const selectedType = document.getElementById('cw-edit-type').value;
     document.getElementById('cw-edit-filepath').value = selectedType === botonSeleccionado?.type
-        ? (selectedType === 'time' ? (botonSeleccionado.folder || '') : (botonSeleccionado.file || ''))
+        ? ((selectedType === 'time' || selectedType === 'temperature' || selectedType === 'humidity') ? (botonSeleccionado.folder || '') : (botonSeleccionado.file || ''))
         : '';
     if (selectedType === 'time') document.getElementById('cw-edit-name').value = 'Locución de hora';
+    if (selectedType === 'temperature' || selectedType === 'humidity') document.getElementById('cw-edit-name').value = getClimateLocutionLabel(selectedType);
 });
 
 document.getElementById('btn-save-cw-edit').onclick = async () => {
     const selectedType = document.getElementById('cw-edit-type')?.value || 'audio';
     const selectedPath = document.getElementById('cw-edit-filepath').value;
-    const previousPath = selectedType === 'time' ? botonSeleccionado.folder : botonSeleccionado.file;
+    const folderBacked = selectedType === 'time' || selectedType === 'temperature' || selectedType === 'humidity';
+    const previousPath = folderBacked ? botonSeleccionado.folder : botonSeleccionado.file;
     if (botonSeleccionado.type !== selectedType || previousPath !== selectedPath) { 
         ipcRenderer.send('remote-cw-stop', { ...botonSeleccionado, _cwTabIndex: cwActiveTabIndex });
     }
     botonSeleccionado.type = selectedType;
-    botonSeleccionado.file = selectedType === 'time' ? '' : selectedPath;
-    botonSeleccionado.folder = selectedType === 'time' ? selectedPath : '';
+    botonSeleccionado.file = folderBacked ? '' : selectedPath;
+    botonSeleccionado.folder = folderBacked ? selectedPath : '';
     botonSeleccionado.name = document.getElementById('cw-edit-name').value; 
     botonSeleccionado.vol = parseFloat(document.getElementById('cw-edit-volume').value); 
     botonSeleccionado.bg = document.getElementById('cw-edit-bg-color').value; 

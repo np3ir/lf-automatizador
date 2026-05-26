@@ -2121,6 +2121,8 @@ function createApplicationMenu() {
                 { label: '🔀 Añadir carpeta aleatoria...', click: async () => { const res = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] }); if(!res.canceled) mainWindow.webContents.send('menu-add-random', res.filePaths[0]); } },
                 { label: '📅 Ejecutar evento...', click: () => { if (mainWindow) mainWindow.webContents.send('menu-add-event-command'); } },
                 { label: '⌚ Añadir locución de hora', accelerator: 'CmdOrCtrl+H', click: () => { if (mainWindow) mainWindow.webContents.send('menu-insert-time'); } },
+                { label: '🌡️ Añadir locución de temperatura', click: () => { if (mainWindow) mainWindow.webContents.send('menu-insert-temperature'); } },
+                { label: '💧 Añadir locución de humedad', click: () => { if (mainWindow) mainWindow.webContents.send('menu-insert-humidity'); } },
                 { type: 'separator' },
                 { label: '⏹ Añadir stop', click: () => { if (mainWindow) mainWindow.webContents.send('menu-add-stop'); } },
                 {

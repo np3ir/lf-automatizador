@@ -51,7 +51,7 @@ let fileTypesData = loadConfig(fileTypesPath, defaultFileTypes).map(typeData => 
 });
 let generalPrefs = normalizeAudioPrefs(loadConfig(generalPrefsPath, {
     modeLoopPlaylist: false, modeRemovePlayed: false, modeRepeatTrack: false, 
-    timeFolder: '', duckingFade: 1.0, duckingVolume: 20,
+    timeFolder: '', weatherFolder: '', weatherTemperatureFolder: '', weatherHumidityFolder: '', duckingFade: 1.0, duckingVolume: 20,
     outMain: 'default', outMonitor: 'default', outEditor: 'default', outCue: 'default', outCartwall: 'default',
     monitorVolume: 100, monitorEnabled: false, monitorSourceMode: 'postFx', monitorVolumeUiEnabled: true, monitorVolumeUiMode: 'inline', playlistOutputMode: 'disabled', playlistSharedDevice: 'default',
     playlistOutputs: ['default', 'default', 'default', 'default'], cartwallOutputMode: 'master', audioEngineMode: 'rustAudio', rustPlaylistOwnerEnabled: true,
@@ -218,6 +218,8 @@ if (txtTimeFolder) {
 const txtWeatherCity = document.getElementById('txt-weather-city');
 const selWeatherUnit = document.getElementById('sel-weather-unit');
 const txtWeatherFolder = document.getElementById('txt-weather-folder');
+const txtWeatherTempFolder = document.getElementById('txt-weather-temp-folder');
+const txtWeatherHumFolder = document.getElementById('txt-weather-hum-folder');
 const lblWeatherTemp = document.getElementById('lbl-weather-temp');
 const lblWeatherHum = document.getElementById('lbl-weather-humidity');
 let selectedWeatherCoords = {
@@ -229,10 +231,20 @@ if (txtWeatherCity) {
     txtWeatherCity.value = generalPrefs.weatherCity || '';
     if (selWeatherUnit) selWeatherUnit.value = generalPrefs.weatherUnit || 'metric';
     if (txtWeatherFolder) txtWeatherFolder.value = generalPrefs.weatherFolder || '';
+    if (txtWeatherTempFolder) txtWeatherTempFolder.value = generalPrefs.weatherTemperatureFolder || generalPrefs.weatherFolder || '';
+    if (txtWeatherHumFolder) txtWeatherHumFolder.value = generalPrefs.weatherHumidityFolder || generalPrefs.weatherFolder || '';
 
-    document.getElementById('btn-browse-weather').addEventListener('click', async () => {
+    document.getElementById('btn-browse-weather')?.addEventListener('click', async () => {
         const folder = await ipcRenderer.invoke('dialog:selectFolder');
         if (folder) txtWeatherFolder.value = folder;
+    });
+    document.getElementById('btn-browse-weather-temp')?.addEventListener('click', async () => {
+        const folder = await ipcRenderer.invoke('dialog:selectFolder');
+        if (folder && txtWeatherTempFolder) txtWeatherTempFolder.value = folder;
+    });
+    document.getElementById('btn-browse-weather-hum')?.addEventListener('click', async () => {
+        const folder = await ipcRenderer.invoke('dialog:selectFolder');
+        if (folder && txtWeatherHumFolder) txtWeatherHumFolder.value = folder;
     });
 
 
@@ -706,7 +718,9 @@ function saveAll() {
     if (document.getElementById('txt-weather-city')) {
         generalPrefs.weatherCity = document.getElementById('txt-weather-city').value;
         generalPrefs.weatherUnit = document.getElementById('sel-weather-unit').value;
-        generalPrefs.weatherFolder = document.getElementById('txt-weather-folder').value;
+        generalPrefs.weatherTemperatureFolder = document.getElementById('txt-weather-temp-folder')?.value || '';
+        generalPrefs.weatherHumidityFolder = document.getElementById('txt-weather-hum-folder')?.value || '';
+        generalPrefs.weatherFolder = generalPrefs.weatherTemperatureFolder || generalPrefs.weatherHumidityFolder || generalPrefs.weatherFolder || '';
         generalPrefs.weatherLatitude = selectedWeatherCoords.lat;
         generalPrefs.weatherLongitude = selectedWeatherCoords.lon;
     }
@@ -730,7 +744,7 @@ const __SETTINGS_SNAPSHOT_IDS = [
     'sel-audio-engine-mode',
     'chk-monitor-enabled', 'chk-monitor-volume-ui',
     'num-duck-vol', 'num-duck-fade',
-    'txt-weather-city', 'sel-weather-unit', 'txt-weather-folder'
+    'txt-weather-city', 'sel-weather-unit', 'txt-weather-folder', 'txt-weather-temp-folder', 'txt-weather-hum-folder'
 ];
 let __settingsSnapshot = null;
 

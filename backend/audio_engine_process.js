@@ -16,8 +16,12 @@ function resolveRustAudioEnginePath(rootDir) {
         path.join(baseDir, 'bin', `lf-audio-engine-debug${ext}`),
         path.join(baseDir, 'audio-engine-rust', 'target', 'release', `lf-audio-engine${ext}`),
         path.join(baseDir, 'audio-engine-rust', 'target', 'debug', `lf-audio-engine${ext}`)
-    ];
-    return candidates.find(candidate => candidate && fs.existsSync(candidate)) || candidates[0];
+    ].filter(Boolean);
+    const existing = candidates
+        .filter(candidate => fs.existsSync(candidate))
+        .map(candidate => ({ candidate, mtimeMs: fs.statSync(candidate).mtimeMs || 0 }))
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return existing[0]?.candidate || candidates[0];
 }
 
 
