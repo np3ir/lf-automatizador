@@ -58,3 +58,6 @@ explicit_types.json
 manual_cues.json
 Time/
 config/artists/img/
+
+# runtime log
+error_log.txt
